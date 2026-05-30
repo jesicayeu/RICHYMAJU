@@ -1,0 +1,20 @@
+{
+	admin off
+}
+
+richymaju.my.id {
+	@websockets path /app/*
+	handle @websockets {
+		reverse_proxy reverb:8080
+	}
+
+	handle {
+		reverse_proxy laravel:80
+		encode zstd gzip
+	}
+}
+
+wa.richymaju.my.id {
+	reverse_proxy waha:3000
+	encode zstd gzip
+}

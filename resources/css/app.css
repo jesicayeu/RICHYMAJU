@@ -1,0 +1,488 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    color-scheme: light;
+    --page-bg: #f1f5f9;
+    --surface: #ffffff;
+    --surface-muted: #f8fafc;
+    --surface-inset: #f1f5f9;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --shadow: 0 10px 25px -12px rgb(15 23 42 / 0.12);
+}
+
+.dark {
+    color-scheme: dark;
+    --page-bg: #0f172a;
+    --surface: #1e293b;
+    --surface-muted: #334155;
+    --surface-inset: #1c2431;
+    --border: #334155;
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
+    --shadow: 0 10px 25px -12px rgb(0 0 0 / 0.45);
+}
+
+body {
+    background-color: var(--page-bg);
+    color: var(--text);
+}
+
+@layer components {
+    .glass-card {
+        @apply rounded-3xl border shadow-lg;
+        background-color: var(--surface);
+        border-color: var(--border);
+        box-shadow: var(--shadow);
+    }
+
+    .detail-metric-grid {
+        @apply grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4;
+    }
+
+    .detail-metric-card {
+        @apply rounded-2xl p-4;
+        background-color: var(--surface-inset);
+    }
+
+    .detail-metric-label {
+        @apply text-xs font-medium;
+        color: var(--text-muted);
+    }
+
+    .detail-metric-value {
+        @apply text-lg font-bold;
+        color: var(--text);
+    }
+
+    .scrollbar-hidden {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .scrollbar-hidden::-webkit-scrollbar {
+        display: none;
+    }
+
+    .btn-primary {
+        @apply inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white transition disabled:pointer-events-none disabled:opacity-50;
+        background-color: var(--accent);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background-color: var(--accent-hover);
+    }
+
+    .btn-muted {
+        @apply inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-2xl border px-4 text-sm font-semibold transition;
+        background-color: var(--surface);
+        border-color: var(--border);
+        color: var(--text);
+    }
+
+    .btn-muted:hover {
+        background-color: var(--surface-muted);
+    }
+
+    .input {
+        @apply h-10 w-full rounded-2xl border px-4 text-sm shadow-sm outline-none transition focus:ring-4;
+        background-color: var(--surface);
+        border-color: var(--border);
+        color: var(--text);
+    }
+
+    .filter-bar {
+        @apply grid items-center gap-2 p-3;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    }
+
+    .filter-bar--admin {
+        grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+    }
+
+    .filter-bar--transactions-admin {
+        grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.4fr) auto;
+    }
+
+    .filter-bar--debts-admin {
+        grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.2fr) auto;
+    }
+
+    .filter-bar--stocks {
+        grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.4fr) auto;
+    }
+
+    .filter-bar--stocks-simple {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto;
+    }
+
+    .filter-bar--stocks-kasir {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+    }
+
+    .filter-bar--stocks-kasir-simple {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    }
+
+    .filter-bar__search {
+        @apply relative;
+    }
+
+    .filter-bar__search-icon {
+        @apply pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400;
+    }
+
+    .filter-bar__control {
+        @apply h-10 min-w-0 w-full;
+    }
+
+    .filter-bar__control--number {
+        @apply [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none;
+    }
+
+    .filter-bar__submit {
+        @apply w-full min-w-[6.5rem] sm:w-auto;
+    }
+
+    @media (max-width: 640px) {
+        .filter-bar {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .filter-bar--admin,
+        .filter-bar--transactions-admin,
+        .filter-bar--debts-admin,
+        .filter-bar--stocks,
+        .filter-bar--stocks-simple,
+        .filter-bar--stocks-kasir,
+        .filter-bar--stocks-kasir-simple {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .filter-bar__submit {
+            grid-column: 1 / -1;
+        }
+    }
+
+    .input:focus {
+        border-color: var(--accent);
+        --tw-ring-color: rgb(99 102 241 / 0.15);
+    }
+
+    .surface-panel {
+        background-color: var(--surface);
+        border-color: var(--border);
+    }
+
+    .mobile-bottom-nav {
+        display: flex;
+        flex-direction: column;
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+
+    .mobile-menu-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    @media (min-width: 1280px) {
+        .mobile-bottom-nav,
+        .mobile-menu-btn,
+        .mobile-drawer,
+        .mobile-drawer-backdrop {
+            display: none !important;
+        }
+    }
+
+    .data-table-wrap {
+        @apply w-full min-w-0 max-w-full overflow-hidden;
+    }
+
+    .data-table {
+        table-layout: fixed;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .data-table th,
+    .data-table td {
+        @apply min-w-0 overflow-hidden align-middle px-3 py-3;
+    }
+
+    @media (max-width: 640px) {
+        .data-table th,
+        .data-table td {
+            @apply px-2 py-2.5 text-xs;
+        }
+
+        .data-table .col-tight > span {
+            @apply px-2 py-0.5 text-[10px];
+        }
+
+        .data-table .table-action-btn {
+            @apply !h-7 !px-2 !text-[10px];
+        }
+
+        .data-table .table-action-btn .btn-label {
+            @apply hidden;
+        }
+    }
+
+    .data-table--transactions th,
+    .data-table--transactions td {
+        @apply px-2 sm:px-3;
+    }
+
+    /* Kasir: Tanggal, Jenis, Nominal, Status, Aksi */
+    .data-table--transactions-cols-5 col:nth-child(1) {
+        width: 32%;
+    }
+
+    .data-table--transactions-cols-5 col:nth-child(2) {
+        width: 14%;
+    }
+
+    .data-table--transactions-cols-5 col:nth-child(3) {
+        width: 24%;
+    }
+
+    .data-table--transactions-cols-5 col:nth-child(4) {
+        width: 14%;
+    }
+
+    .data-table--transactions-cols-5 col:nth-child(5) {
+        width: 16%;
+    }
+
+    /* Admin: + Nama Kasir */
+    .data-table--transactions-cols-6 col:nth-child(1) {
+        width: 20%;
+    }
+
+    .data-table--transactions-cols-6 col:nth-child(2) {
+        width: 14%;
+    }
+
+    .data-table--transactions-cols-6 col:nth-child(3) {
+        width: 12%;
+    }
+
+    .data-table--transactions-cols-6 col:nth-child(4) {
+        width: 18%;
+    }
+
+    .data-table--transactions-cols-6 col:nth-child(5) {
+        width: 12%;
+    }
+
+    .data-table--transactions-cols-6 col:nth-child(6) {
+        width: 24%;
+    }
+
+    .data-table--transactions .col-date {
+        @apply truncate text-left;
+    }
+
+    .data-table--transactions .col-tight:not(.col-money):not(.col-actions) {
+        @apply text-center;
+    }
+
+    .data-table--transactions .col-tight:not(.col-money):not(.col-actions) > span,
+    .data-table--transactions .col-tight:not(.col-money):not(.col-actions) > a:not(.table-action-btn) {
+        @apply mx-auto inline-flex max-w-full;
+    }
+
+    .data-table--transactions .col-money {
+        @apply truncate text-right tabular-nums;
+    }
+
+    .data-table--transactions tbody .col-money {
+        @apply font-black;
+    }
+
+    .data-table--transactions .col-actions {
+        @apply text-right;
+    }
+
+    .data-table--transactions .col-actions .table-actions {
+        @apply flex max-w-full flex-wrap items-center justify-end gap-1;
+    }
+
+    .data-table .table-action-btn {
+        @apply inline-flex shrink-0 items-center gap-1;
+    }
+
+    .data-table thead {
+        @apply bg-slate-50 text-left dark:bg-slate-900;
+    }
+
+    .data-table th {
+        @apply font-semibold text-slate-600 dark:text-slate-400;
+    }
+
+    .data-table tbody tr {
+        @apply border-t border-slate-100 dark:border-slate-800;
+    }
+
+
+    .data-table--debts-cols-7 col:nth-child(1) {
+        width: 13%;
+    }
+
+    .data-table--debts-cols-7 col:nth-child(2) {
+        width: 16%;
+    }
+
+    .data-table--debts-cols-7 col:nth-child(3) {
+        width: 14%;
+    }
+
+    .data-table--debts-cols-7 col:nth-child(4) {
+        width: 11%;
+    }
+
+    .data-table--debts-cols-7 col:nth-child(5) {
+        width: 10%;
+    }
+
+    .data-table--debts-cols-7 col:nth-child(6) {
+        width: 12%;
+    }
+
+    .data-table--debts-cols-7 col:nth-child(7) {
+        width: 24%;
+    }
+
+    /* Kasir: 6 kolom (tanpa Nama Kasir) */
+    .data-table--debts-cols-6 col:nth-child(1) {
+        width: 14%;
+    }
+
+    .data-table--debts-cols-6 col:nth-child(2) {
+        width: 20%;
+    }
+
+    .data-table--debts-cols-6 col:nth-child(3) {
+        width: 16%;
+    }
+
+    .data-table--debts-cols-6 col:nth-child(4) {
+        width: 10%;
+    }
+
+    .data-table--debts-cols-6 col:nth-child(5) {
+        width: 14%;
+    }
+
+    .data-table--debts-cols-6 col:nth-child(6) {
+        width: 26%;
+    }
+
+    .data-table--debts th,
+    .data-table--debts td {
+        @apply px-2 sm:px-3;
+    }
+
+    .data-table--debts .col-date {
+        @apply truncate text-left;
+    }
+
+    .data-table--debts .col-tight:not(.col-actions) {
+        @apply text-center;
+    }
+
+    .data-table--debts .col-tight:not(.col-actions) > span,
+    .data-table--debts .col-tight:not(.col-actions) > a:not(.table-action-btn) {
+        @apply mx-auto inline-flex max-w-full;
+    }
+
+    .data-table--debts .col-money {
+        @apply text-right tabular-nums;
+    }
+
+    .data-table--debts tbody .col-money {
+        @apply font-black;
+    }
+
+    .data-table--debts .col-actions {
+        @apply text-right;
+    }
+
+    .data-table--debts .col-actions .table-actions {
+        @apply flex max-w-full flex-wrap items-center justify-end gap-1;
+    }
+
+    .data-table--debts .col-actions .table-action-btn {
+        @apply inline-flex shrink-0;
+    }
+
+    .data-table--stocks col:nth-child(1) {
+        width: 14%;
+    }
+
+    .data-table--stocks col:nth-child(2) {
+        width: 24%;
+    }
+
+    .data-table--stocks col:nth-child(3) {
+        width: 12%;
+    }
+
+    .data-table--stocks col:nth-child(4) {
+        width: 16%;
+    }
+
+    .data-table--stocks col:nth-child(5) {
+        width: 12%;
+    }
+
+    .data-table--stocks col:nth-child(6) {
+        width: 22%;
+    }
+
+    .data-table--stocks th,
+    .data-table--stocks td {
+        @apply px-2 sm:px-3;
+    }
+
+    .data-table--stocks .col-date {
+        @apply truncate text-left;
+    }
+
+    .data-table--stocks .col-tight:not(.col-actions) {
+        @apply text-center;
+    }
+
+    .data-table--stocks .col-tight:not(.col-actions) > span,
+    .data-table--stocks .col-tight:not(.col-actions) > a:not(.table-action-btn) {
+        @apply mx-auto inline-flex max-w-full;
+    }
+
+    .data-table--stocks .col-qty {
+        @apply text-right tabular-nums;
+    }
+
+    .data-table--stocks tbody .col-qty {
+        @apply font-semibold;
+    }
+
+    .data-table--stocks .col-actions {
+        @apply text-right;
+    }
+
+    .data-table--stocks .col-actions .table-actions {
+        @apply flex max-w-full flex-wrap items-center justify-end gap-1;
+    }
+
+    .data-table--stocks .col-actions .table-action-btn {
+        @apply inline-flex shrink-0;
+    }
+}
