@@ -7,12 +7,12 @@ use App\Events\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\GoogleDriveService;
 use App\Services\WhatsappNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 use Inertia\Inertia;
@@ -20,34 +20,68 @@ use Inertia\Response;
 
 class ChatController extends Controller
 {
+    public function __construct(
+        private GoogleDriveService $drive,
+    ) {}
     public function index(Request $request): Response
     {
         $user = $request->user();
-        $this->ensureDefaultConversation($user);
+        $managedIds = User::activeManagedAccountIds();
+        $this->purgeOrphanConversations($managedIds);
 
-        $conversations = Conversation::with(['participantA', 'participantB', 'messages' => fn ($q) => $q->latest()->limit(1)])
+        $contacts = $this->chatContacts($user);
+        foreach ($contacts as $contact) {
+            $this->conversationFor($user, $contact);
+        }
+
+        $conversationsByPartnerId = Conversation::query()
+            ->with(['participantA', 'participantB', 'messages' => fn ($q) => $q->latest()->limit(1)])
             ->where(fn ($query) => $query->where('participant_a_id', $user->id)->orWhere('participant_b_id', $user->id))
-            ->orderByRaw('COALESCE(last_message_at, created_at) DESC')
             ->get()
-            ->map(fn (Conversation $conversation) => [
-                'id' => $conversation->id,
-                'other' => $this->formatChatUser($conversation->otherParticipant($user)),
-                'lastMessage' => $conversation->messages->first(),
-            ]);
+            ->filter(function (Conversation $conversation) use ($user, $contacts) {
+                $other = $conversation->otherParticipant($user);
 
-        $active = Conversation::with(['participantA', 'participantB', 'messages.sender'])
-            ->where(fn ($query) => $query->where('participant_a_id', $user->id)->orWhere('participant_b_id', $user->id))
-            ->orderByRaw('COALESCE(last_message_at, created_at) DESC')
-            ->first();
+                return $other && $contacts->contains('id', $other->id);
+            })
+            ->keyBy(fn (Conversation $conversation) => $conversation->otherParticipant($user)->id);
+
+        $conversationItems = $contacts
+            ->map(function (User $contact) use ($conversationsByPartnerId) {
+                $existing = $conversationsByPartnerId->get($contact->id);
+
+                if ($existing) {
+                    return [
+                        'id' => $existing->id,
+                        'other' => $this->formatChatUser($contact),
+                        'lastMessage' => $existing->messages->first(),
+                    ];
+                }
+
+                return [
+                    'id' => null,
+                    'other' => $this->formatChatUser($contact),
+                    'lastMessage' => null,
+                ];
+            })
+            ->sortByDesc(function (array $item) {
+                $at = $item['lastMessage']?->created_at;
+
+                return $at instanceof \DateTimeInterface ? $at->getTimestamp() : 0;
+            })
+            ->values();
+
+        $active = $conversationsByPartnerId->sortByDesc(
+            fn (Conversation $conversation) => $conversation->last_message_at ?? $conversation->created_at,
+        )->first();
 
         return Inertia::render('Chat/Index', [
-            'conversations' => $conversations,
+            'conversations' => $conversationItems,
             'activeConversation' => $active ? [
                 'id' => $active->id,
-                'messages' => $active->messages,
+                'messages' => $active->messages()->with('sender')->oldest()->get(),
                 'other' => $this->formatChatUser($active->otherParticipant($user)),
             ] : null,
-            'contacts' => $this->chatContacts($user)
+            'contacts' => $contacts
                 ->map(fn (User $contact) => $this->formatChatUser($contact))
                 ->filter()
                 ->values(),
@@ -91,10 +125,7 @@ class ChatController extends Controller
         $originalName = null;
         if ($attachmentFile) {
             $originalName = $attachmentFile->getClientOriginalName();
-            $extension = $attachmentFile->getClientOriginalExtension() ?: $attachmentFile->extension();
-            $filename = 'chat/'.Str::uuid().'.'.$extension;
-            $attachmentFile->storeAs('', $filename, 'public');
-            $attachmentPath = $filename;
+            $attachmentPath = $this->drive->upload($attachmentFile, 'chat');
         }
 
         $message = Message::create([
@@ -253,11 +284,22 @@ class ChatController extends Controller
             ->all();
     }
 
-    private function ensureDefaultConversation(User $user): void
+    /**
+     * @param  list<int>  $managedIds
+     */
+    private function purgeOrphanConversations(array $managedIds): void
     {
-        $this->chatContacts($user)->each(
-            fn (User $contact) => $this->conversationFor($user, $contact)
-        );
+        Conversation::query()
+            ->get()
+            ->each(function (Conversation $conversation) use ($managedIds) {
+                if (
+                    ! in_array($conversation->participant_a_id, $managedIds, true)
+                    || ! in_array($conversation->participant_b_id, $managedIds, true)
+                ) {
+                    $conversation->messages()->delete();
+                    $conversation->delete();
+                }
+            });
     }
 
     /**
@@ -266,8 +308,8 @@ class ChatController extends Controller
     private function chatContacts(User $user)
     {
         return User::query()
+            ->managedAccounts()
             ->where('status', 'aktif')
-            ->whereIn('role', ['admin', 'kasir'])
             ->where('id', '!=', $user->id)
             ->orderByRaw("CASE WHEN role = 'admin' THEN 0 ELSE 1 END")
             ->orderBy('name')
@@ -279,7 +321,10 @@ class ChatController extends Controller
         abort_unless($user->isActive() && in_array($user->role, ['admin', 'kasir'], true), 403);
         abort_unless($recipient->isActive(), 403);
         abort_if($recipient->id === $user->id, 403);
-        abort_unless(in_array($recipient->role, ['admin', 'kasir'], true), 403);
+        abort_unless(
+            User::query()->managedAccounts()->whereKey($recipient->id)->exists(),
+            403,
+        );
 
         return $recipient;
     }

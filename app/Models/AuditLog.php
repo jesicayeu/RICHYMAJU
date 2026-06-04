@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptedJson;
+use App\Casts\EncryptedString;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,8 +17,10 @@ class AuditLog extends Model
     protected function casts(): array
     {
         return [
-            'before_json' => 'array',
-            'after_json' => 'array',
+            'before_json' => EncryptedJson::class,
+            'after_json' => EncryptedJson::class,
+            'note' => EncryptedString::class,
+            'action' => EncryptedString::class,
             'created_at' => 'datetime',
         ];
     }

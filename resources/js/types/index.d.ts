@@ -34,6 +34,8 @@ export type PageProps<
     flash?: {
         success?: string;
         error?: string;
+        encryption_tab?: 'text' | 'file';
+        whatsapp_tab?: 'config' | 'pesan' | 'kontak' | 'tes';
     };
     unreadNotifications?: number;
 };

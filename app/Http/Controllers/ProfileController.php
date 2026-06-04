@@ -3,18 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Services\GoogleDriveService;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
+use RuntimeException;
 
 class ProfileController extends Controller
 {
+    public function __construct(
+        private GoogleDriveService $drive,
+    ) {}
     public function edit(Request $request): Response
     {
         return Inertia::render('Profile/Edit', [
@@ -41,20 +44,22 @@ class ProfileController extends Controller
             $user->email_verified_at = null;
         }
 
-        if ($avatarFile) {
-            if ($user->avatar_path && Storage::disk('public')->exists($user->avatar_path)) {
-                Storage::disk('public')->delete($user->avatar_path);
-            }
+        try {
+            if ($avatarFile) {
+                $this->drive->delete($user->avatar_path);
 
-            $extension = $avatarFile->getClientOriginalExtension() ?: $avatarFile->extension();
-            $filename = 'avatars/'.Str::uuid().'.'.$extension;
-            $avatarFile->storeAs('', $filename, 'public');
-            $user->avatar_path = $filename;
-        } elseif ($removeAvatar && $user->avatar_path) {
-            if (Storage::disk('public')->exists($user->avatar_path)) {
-                Storage::disk('public')->delete($user->avatar_path);
+                $extension = $avatarFile->getClientOriginalExtension() ?: 'jpg';
+                $user->avatar_path = $this->drive->upload(
+                    $avatarFile,
+                    'profile',
+                    'avatar-'.$user->id.'.'.$extension,
+                );
+            } elseif ($removeAvatar && $user->avatar_path) {
+                $this->drive->delete($user->avatar_path);
+                $user->avatar_path = null;
             }
-            $user->avatar_path = null;
+        } catch (RuntimeException $e) {
+            return Redirect::route('profile.edit')->with('error', $e->getMessage());
         }
 
         $user->save();

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\EncryptedFieldSearch;
 use App\Support\Audit;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,10 +18,25 @@ class UserController extends Controller
     public function index(Request $request): Response
     {
         $filters = $request->only(['search', 'role', 'status']);
-        $users = User::query()
-            ->when($filters['search'] ?? null, fn ($q, $v) => $q->where(fn ($qq) => $qq->where('name', 'like', "%{$v}%")->orWhere('username', 'like', "%{$v}%")->orWhere('email', 'like', "%{$v}%")->orWhere('phone', 'like', "%{$v}%")))
+        $usersQuery = User::query()
             ->when($filters['role'] ?? null, fn ($q, $v) => $q->where('role', $v))
-            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
+            ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v));
+
+        if ($filters['search'] ?? null) {
+            $search = (string) $filters['search'];
+            $encryptedIds = EncryptedFieldSearch::matchingIds($usersQuery, $search, ['name', 'display_name', 'phone']);
+
+            $usersQuery->where(function ($query) use ($search, $encryptedIds) {
+                $query->where('username', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+
+                if ($encryptedIds !== []) {
+                    $query->orWhereIn('id', $encryptedIds);
+                }
+            });
+        }
+
+        $users = $usersQuery
             ->latest()
             ->paginate(12)
             ->withQueryString();

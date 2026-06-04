@@ -9,6 +9,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Models\WhatsappActionTemplate;
 use App\Models\WhatsappTemplateVariable;
+use App\Services\EncryptionService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
@@ -131,7 +132,13 @@ class WhatsappTemplateVariableResolver
 
         $value = DB::table($table)->orderByDesc($orderColumn)->value($column);
 
-        return $value !== null ? (string) $value : null;
+        if ($value === null) {
+            return null;
+        }
+
+        $decrypted = app(EncryptionService::class)->tryDecryptText((string) $value);
+
+        return $decrypted ?? '';
     }
 
     /** @return array<int, string> */

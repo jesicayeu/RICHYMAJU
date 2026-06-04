@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptedJson;
+use App\Casts\EncryptedString;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Collection;
 
 class WhatsappChatId extends Model
 {
@@ -47,7 +50,9 @@ class WhatsappChatId extends Model
     protected function casts(): array
     {
         return [
-            'action_keys' => 'array',
+            'chat_id' => EncryptedString::class,
+            'label' => EncryptedString::class,
+            'action_keys' => EncryptedJson::class,
         ];
     }
 
@@ -78,6 +83,23 @@ class WhatsappChatId extends Model
         }
 
         return array_values(array_unique($normalized));
+    }
+
+  /** @return Collection<int, self> */
+    public static function allMatchingTrigger(string $contactTrigger): Collection
+    {
+        $normalizedTrigger = self::normalizeActionKeys([$contactTrigger]);
+
+        return self::query()
+            ->with('user:id,phone,name,display_name,role')
+            ->get()
+            ->filter(function (self $contact) use ($normalizedTrigger) {
+                $keys = self::normalizeActionKeys($contact->action_keys ?? []);
+
+                return $normalizedTrigger !== []
+                    && array_intersect($normalizedTrigger, $keys) !== [];
+            })
+            ->values();
     }
 
     /** @param array<int, string> $keys */

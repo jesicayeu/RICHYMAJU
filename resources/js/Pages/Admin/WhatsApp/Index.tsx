@@ -1,9 +1,12 @@
 import AppLayout from '@/Layouts/AppLayout';
 import KontakTab from '@/Pages/Admin/WhatsApp/KontakTab';
 import PesanTab from '@/Pages/Admin/WhatsApp/PesanTab';
-import { useForm } from '@inertiajs/react';
+import TesTab from '@/Pages/Admin/WhatsApp/TesTab';
+import PasswordInput from '@/Components/PasswordInput';
+import { PageProps } from '@/types';
+import { useForm, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
-import { Link2 } from 'lucide-react';
+import { ExternalLink, Link2 } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 
 type Settings = {
@@ -22,6 +25,7 @@ type MessageTemplate = {
     title: string;
     action_key: string;
     action_label: string;
+    contact_trigger_label: string | null;
     body: string;
 };
 
@@ -46,13 +50,21 @@ type AccountOption = {
 
 type TriggerOptions = Record<string, string>;
 
-const tabs = ['config', 'pesan', 'kontak'] as const;
+type TestRecipient = {
+    id: number;
+    label: string;
+    phone: string;
+    chat_id: string;
+};
+
+const tabs = ['config', 'pesan', 'kontak', 'tes'] as const;
 type Tab = (typeof tabs)[number];
 
 const tabLabels: Record<Tab, string> = {
     config: 'Config',
     pesan: 'Pesan',
     kontak: 'Kontak',
+    tes: 'Test chat',
 };
 
 const statusLabels: Record<string, string> = {
@@ -85,21 +97,33 @@ export default function WhatsAppIndex({
     config,
     messageTemplates,
     actionGroups,
+    actionTriggerMap,
     actionTypeVariables,
     contacts,
     accountOptions,
     triggerOptions,
+    testRecipients,
 }: {
     settings: Settings;
     config: Config;
     messageTemplates: MessageTemplate[];
     actionGroups: ActionGroups;
+    actionTriggerMap: Record<string, string | null>;
     actionTypeVariables: ActionTypeVariables;
     contacts: ContactRow[];
     accountOptions: AccountOption[];
     triggerOptions: TriggerOptions;
+    testRecipients: TestRecipient[];
 }) {
+    const { flash } = usePage<PageProps>().props;
     const [activeTab, setActiveTab] = useState<Tab>('config');
+
+    useEffect(() => {
+        const tab = flash?.whatsapp_tab;
+        if (tab && tabs.includes(tab)) {
+            setActiveTab(tab);
+        }
+    }, [flash?.whatsapp_tab]);
 
     const form = useForm({
         host_url: settings.host_url,
@@ -181,13 +205,10 @@ export default function WhatsAppIndex({
                             </div>
                             <div>
                                 <label className="mb-1 block text-xs font-semibold text-slate-500">API Key</label>
-                                <input
-                                    type="password"
-                                    className="input w-full"
+                                <PasswordInput
                                     value={form.data.api_key}
-                                    onChange={(e) => form.setData('api_key', e.target.value)}
+                                    onChange={(value) => form.setData('api_key', value)}
                                     placeholder="Masukkan API key"
-                                    autoComplete="off"
                                 />
                             </div>
                             <div className="md:col-span-2">
@@ -200,10 +221,18 @@ export default function WhatsAppIndex({
                                     required
                                 />
                             </div>
-                            <div className="md:col-span-2">
+                            <div className="flex flex-wrap gap-2 md:col-span-2">
                                 <button type="submit" className="btn-primary" disabled={form.processing}>
                                     <Link2 className="h-4 w-4" /> Connect
                                 </button>
+                                <a
+                                    href="https://wa.richymaju.my.id/dashboard"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn-muted"
+                                >
+                                    <ExternalLink className="h-4 w-4" /> Open Config
+                                </a>
                             </div>
                         </form>
                     </motion.div>
@@ -213,6 +242,7 @@ export default function WhatsAppIndex({
                     <PesanTab
                         messageTemplates={messageTemplates}
                         actionGroups={actionGroups}
+                        actionTriggerMap={actionTriggerMap}
                         actionTypeVariables={actionTypeVariables}
                     />
                 )}
@@ -224,6 +254,10 @@ export default function WhatsAppIndex({
                         triggerOptions={triggerOptions}
                     />
                 )}
+
+                <div className={activeTab === 'tes' ? undefined : 'hidden'}>
+                    <TesTab testRecipients={testRecipients} />
+                </div>
             </motion.div>
         </AppLayout>
     );

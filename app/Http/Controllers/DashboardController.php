@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Debt;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\EncryptedQuery;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -19,16 +20,18 @@ class DashboardController extends Controller
         $baseTransactions = Transaction::query()->when(! $user->isAdmin(), fn ($query) => $query->where('user_id', $user->id));
         $baseDebts = Debt::query()->when(! $user->isAdmin(), fn ($query) => $query->where('user_id', $user->id));
 
-        $income = (clone $baseTransactions)->where('type', 'pemasukan')->whereDate('occurred_at', $today)->sum('amount');
-        $expense = (clone $baseTransactions)->where('type', 'pengeluaran')->whereDate('occurred_at', $today)->sum('amount');
+        $todayTransactions = (clone $baseTransactions)->whereDate('occurred_at', $today);
+        $income = (int) EncryptedQuery::sum($todayTransactions, 'amount', fn (Transaction $t) => $t->type === 'pemasukan');
+        $expense = (int) EncryptedQuery::sum($todayTransactions, 'amount', fn (Transaction $t) => $t->type === 'pengeluaran');
 
         $chart = collect(range(6, 0))->map(function (int $days) use ($baseTransactions) {
             $date = Carbon::today()->subDays($days);
+            $dayQuery = (clone $baseTransactions)->whereDate('occurred_at', $date);
 
             return [
                 'date' => $date->format('d M'),
-                'pemasukan' => (clone $baseTransactions)->where('type', 'pemasukan')->whereDate('occurred_at', $date)->sum('amount'),
-                'pengeluaran' => (clone $baseTransactions)->where('type', 'pengeluaran')->whereDate('occurred_at', $date)->sum('amount'),
+                'pemasukan' => (int) EncryptedQuery::sum($dayQuery, 'amount', fn (Transaction $t) => $t->type === 'pemasukan'),
+                'pengeluaran' => (int) EncryptedQuery::sum($dayQuery, 'amount', fn (Transaction $t) => $t->type === 'pengeluaran'),
             ];
         })->values();
 
@@ -37,9 +40,9 @@ class DashboardController extends Controller
                 'incomeToday' => $income,
                 'expenseToday' => $expense,
                 'profitToday' => $income - $expense,
-                'debtOpen' => (clone $baseDebts)->where('status', 'belum_selesai')->sum('amount'),
-                'pendingTransactions' => Transaction::where('verification_status', 'menunggu')->count(),
-                'pendingDebts' => Debt::where('verification_status', 'menunggu')->count(),
+                'debtOpen' => (int) EncryptedQuery::sum($baseDebts, 'amount', fn (Debt $debt) => $debt->status === 'belum_selesai'),
+                'pendingTransactions' => EncryptedQuery::countWhere(Transaction::query(), 'verification_status', 'menunggu'),
+                'pendingDebts' => EncryptedQuery::countWhere(Debt::query(), 'verification_status', 'menunggu'),
                 'activeCashiers' => User::where('role', 'kasir')->where('status', 'aktif')->count(),
             ],
             'chart' => $chart,

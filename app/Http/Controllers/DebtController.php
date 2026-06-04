@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Debt;
 use App\Models\User;
+use App\Services\EncryptedFieldSearch;
+use App\Services\EncryptedQuery;
+use App\Services\GoogleDriveService;
 use App\Services\WhatsappNotificationService;
 use App\Support\Audit;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -11,14 +14,15 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DebtController extends Controller
 {
+    public function __construct(
+        private GoogleDriveService $drive,
+    ) {}
     public function index(Request $request): Response
     {
         $filters = $request->only([
@@ -49,7 +53,7 @@ class DebtController extends Controller
         $filteredQuery = clone $baseQuery;
         $this->applyFilters($filteredQuery, $filters);
 
-        $sort = in_array($filters['sort'] ?? '', ['occurred_at', 'amount', 'status', 'party_name', 'item_name'], true)
+        $sort = in_array($filters['sort'] ?? '', ['occurred_at', 'amount', 'status'], true)
             ? $filters['sort']
             : 'occurred_at';
         $direction = ($filters['direction'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
@@ -57,17 +61,19 @@ class DebtController extends Controller
             ? (int) ($filters['per_page'] ?? 10)
             : 10;
 
-        $debts = (clone $filteredQuery)
-            ->orderBy($sort, $direction)
-            ->paginate($perPage)
-            ->withQueryString();
+        $debts = EncryptedQuery::paginate(
+            clone $filteredQuery,
+            $perPage,
+            $sort,
+            $direction,
+        );
 
         $isAdmin = $request->user()->isAdmin();
 
         $payload = [
             'debts' => $debts,
             'filters' => $filters,
-            'cashiers' => User::where('role', 'kasir')->orderBy('name')->get(['id', 'name', 'display_name', 'username']),
+            'cashiers' => User::where('role', 'kasir')->get(['id', 'name', 'display_name', 'username'])->sortBy('name')->values(),
             'isAdmin' => $isAdmin,
         ];
 
@@ -138,7 +144,7 @@ class DebtController extends Controller
             );
 
             if ($debt->evidence_path) {
-                Storage::disk('public')->delete($debt->evidence_path);
+                $this->drive->delete($debt->evidence_path);
             }
             $debt->delete();
         });
@@ -220,29 +226,7 @@ class DebtController extends Controller
             return null;
         }
 
-        $folder = 'debts';
-        $file = $request->file('evidence');
-        $filename = $this->uniqueOriginalFilename($file, $folder);
-
-        return $file->storeAs($folder, $filename, 'public');
-    }
-
-    private function uniqueOriginalFilename(UploadedFile $file, string $folder): string
-    {
-        $original = basename($file->getClientOriginalName());
-        $extension = strtolower($file->getClientOriginalExtension() ?: $file->guessExtension() ?: 'jpg');
-        $basename = pathinfo($original, PATHINFO_FILENAME);
-        $safe = preg_replace('/[^a-zA-Z0-9._-]/', '_', $basename) ?: 'gambar';
-        $filename = "{$safe}.{$extension}";
-        $disk = Storage::disk('public');
-        $counter = 1;
-
-        while ($disk->exists("{$folder}/{$filename}")) {
-            $filename = "{$safe}-{$counter}.{$extension}";
-            $counter++;
-        }
-
-        return $filename;
+        return $this->drive->upload($request->file('evidence'), 'debts');
     }
 
     private function authorizeView(Debt $debt, Request $request): void
@@ -252,17 +236,30 @@ class DebtController extends Controller
 
     private function applyFilters(Builder $query, array $filters): void
     {
-        $query->when($filters['search'] ?? null, fn ($q, $v) => $q->where(fn ($qq) => $qq
-            ->where('party_name', 'like', "%{$v}%")
-            ->orWhere('item_name', 'like', "%{$v}%")
-            ->orWhere('code', 'like', "%{$v}%")));
-        $query->when($filters['party_name'] ?? null, fn ($q, $v) => $q->where('party_name', 'like', "%{$v}%"));
-        $query->when($filters['item_name'] ?? null, fn ($q, $v) => $q->where('item_name', 'like', "%{$v}%"));
-        $query->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v));
-        $query->when($filters['verification_status'] ?? null, fn ($q, $v) => $q->where('verification_status', $v));
-        $query->when($filters['party_type'] ?? null, fn ($q, $v) => $q->where('party_type', $v));
+        $query->when($filters['search'] ?? null, function (Builder $q, string $v) {
+            $encryptedIds = EncryptedFieldSearch::matchingIds($q, $v, ['party_name', 'item_name', 'code', 'amount']);
+
+            if ($encryptedIds === []) {
+                $q->whereRaw('0 = 1');
+
+                return;
+            }
+
+            $q->whereIn('id', $encryptedIds);
+        });
+        $query->when($filters['party_name'] ?? null, function (Builder $q, string $v) {
+            $ids = EncryptedFieldSearch::matchingIds($q, $v, ['party_name']);
+            $q->whereIn('id', $ids !== [] ? $ids : [-1]);
+        });
+        $query->when($filters['item_name'] ?? null, function (Builder $q, string $v) {
+            $ids = EncryptedFieldSearch::matchingIds($q, $v, ['item_name']);
+            $q->whereIn('id', $ids !== [] ? $ids : [-1]);
+        });
+        $query->when($filters['status'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'status', $v));
+        $query->when($filters['verification_status'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'verification_status', $v));
+        $query->when($filters['party_type'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'party_type', $v));
         $query->when($filters['user_id'] ?? null, fn ($q, $v) => $q->where('user_id', $v));
-        $query->when($filters['amount'] ?? null, fn ($q, $v) => $q->where('amount', $v));
+        $query->when($filters['amount'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'amount', $v));
         $query->when($filters['date'] ?? null, fn ($q, $v) => $q->whereDate('occurred_at', $v));
         $query->when($filters['from'] ?? null, fn ($q, $v) => $q->whereDate('occurred_at', '>=', $v));
         $query->when($filters['to'] ?? null, fn ($q, $v) => $q->whereDate('occurred_at', '<=', $v));
@@ -270,9 +267,9 @@ class DebtController extends Controller
 
     private function buildSummary(Builder $query): array
     {
-        $total = (int) (clone $query)->sum('amount');
-        $paid = (int) (clone $query)->where('status', 'sudah_selesai')->sum('amount');
-        $unpaid = (int) (clone $query)->where('status', 'belum_selesai')->sum('amount');
+        $total = (int) EncryptedQuery::sum($query, 'amount');
+        $paid = (int) EncryptedQuery::sum($query, 'amount', fn (Debt $debt) => $debt->status === 'sudah_selesai');
+        $unpaid = (int) EncryptedQuery::sum($query, 'amount', fn (Debt $debt) => $debt->status === 'belum_selesai');
 
         return [
             'total' => $total,
@@ -305,30 +302,23 @@ class DebtController extends Controller
         $points = collect(range($days, 0))->map(function (int $offset) use ($baseQuery, $status, $start) {
             $date = (clone $start)->addDays($offset);
             $dayQuery = (clone $baseQuery)->whereDate('occurred_at', $date);
-            if ($status) {
-                $dayQuery->where('status', $status);
-            }
+            $filter = $status ? fn (Debt $debt) => $debt->status === $status : null;
 
             return [
                 'label' => $date->format('d M'),
-                'value' => (int) $dayQuery->sum('amount'),
+                'value' => (int) EncryptedQuery::sum($dayQuery, 'amount', $filter),
             ];
         })->values();
 
         $rangeQuery = (clone $baseQuery)->whereDate('occurred_at', '>=', $start);
-        if ($status) {
-            $rangeQuery->where('status', $status);
-        }
-
-        $currentTotal = (int) $rangeQuery->sum('amount');
+        $rangeFilter = $status ? fn (Debt $debt) => $debt->status === $status : null;
+        $currentTotal = (int) EncryptedQuery::sum($rangeQuery, 'amount', $rangeFilter);
 
         $previousQuery = (clone $baseQuery)
             ->whereDate('occurred_at', '>=', $previousStart)
             ->whereDate('occurred_at', '<=', $previousEnd);
-        if ($status) {
-            $previousQuery->where('status', $status);
-        }
-        $previousTotal = (int) $previousQuery->sum('amount');
+        $previousFilter = $status ? fn (Debt $debt) => $debt->status === $status : null;
+        $previousTotal = (int) EncryptedQuery::sum($previousQuery, 'amount', $previousFilter);
 
         $changePercent = $previousTotal > 0
             ? (int) round((($currentTotal - $previousTotal) / $previousTotal) * 100)

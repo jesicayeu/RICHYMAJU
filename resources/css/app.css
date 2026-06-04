@@ -30,9 +30,17 @@
     --shadow: 0 10px 25px -12px rgb(0 0 0 / 0.45);
 }
 
+html,
 body {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
     background-color: var(--page-bg);
     color: var(--text);
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+    display: none;
 }
 
 @layer components {
@@ -69,6 +77,11 @@ body {
 
     .scrollbar-hidden::-webkit-scrollbar {
         display: none;
+    }
+
+    .input-masked {
+        -webkit-text-security: disc;
+        text-security: disc;
     }
 
     .btn-primary {

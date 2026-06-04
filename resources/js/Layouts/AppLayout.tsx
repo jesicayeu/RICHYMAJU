@@ -12,6 +12,8 @@ import {
     MessageSquare,
     Moon,
     Package,
+    Cloud,
+    LockKeyhole,
     Receipt,
     Sun,
     UserCircle,
@@ -39,6 +41,8 @@ const navItems: NavItem[] = [
     { href: route('profile.edit'), label: 'Profil', icon: UserCircle },
     { href: route('admin.users.index'), label: 'Kelola Akun', icon: Users, adminOnly: true },
     { href: route('admin.whatsapp.index'), label: 'WhatsApp', icon: Phone, adminOnly: true },
+    { href: route('admin.google-drive.index'), label: 'Google Drive', icon: Cloud, adminOnly: true },
+    { href: route('admin.encryption.index'), label: 'Enkrip', icon: LockKeyhole, adminOnly: true },
 ];
 
 function NavLinks({
@@ -78,7 +82,6 @@ function NavLinks({
 
 export default function AppLayout({ title, children }: PropsWithChildren<{ title: string }>) {
     const { auth, flash } = usePage<PageProps>().props;
-    const [collapsed, setCollapsed] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const isMobile = useIsMobile();
     const { isDark, toggleTheme } = useTheme();
@@ -94,8 +97,11 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
+    }, [flash?.success]);
+
+    useEffect(() => {
         if (flash?.error) toast.error(flash.error);
-    }, [flash]);
+    }, [flash?.error]);
 
     useEffect(() => {
         if (!isMobile) {
@@ -140,33 +146,20 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
             <Head title={title} />
 
             {!isMobile && (
-                <aside
-                    className={`surface-panel fixed inset-y-0 left-0 z-30 border-r transition-all duration-300 ${
-                        collapsed ? 'w-24' : 'w-72'
-                    }`}
-                >
-                    <div className="flex h-20 items-center gap-3 px-6">
+                <aside className="surface-panel fixed inset-y-0 left-0 z-30 flex w-72 flex-col border-r">
+                    <div className="flex h-20 shrink-0 items-center gap-3 px-6">
                         <div className="grid h-12 w-12 place-items-center rounded-2xl bg-indigo-600 text-lg font-black text-white shadow-md">
                             RM
                         </div>
-                        {!collapsed && (
-                            <div>
-                                <div className="text-lg font-black tracking-tight">Richy Maju</div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">Aplikasi Akuntansi</div>
-                            </div>
-                        )}
+                        <div>
+                            <div className="text-lg font-black tracking-tight">Richy Maju</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">Aplikasi Akuntansi</div>
+                        </div>
                     </div>
 
-                    <nav className="space-y-2 px-4">
-                        <NavLinks items={visibleNav} showLabels={!collapsed} linkClass={navLinkClass} />
+                    <nav className="scrollbar-hidden min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-6">
+                        <NavLinks items={visibleNav} showLabels linkClass={navLinkClass} />
                     </nav>
-
-                    <button
-                        onClick={() => setCollapsed(!collapsed)}
-                        className="btn-muted absolute bottom-6 left-1/2 -translate-x-1/2 !p-3"
-                    >
-                        <Menu className="h-5 w-5" />
-                    </button>
                 </aside>
             )}
 
@@ -205,7 +198,7 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                         </button>
                     </div>
 
-                    <nav className="flex-1 space-y-2 overflow-y-auto px-4 pb-6">
+                    <nav className="scrollbar-hidden flex-1 space-y-2 overflow-y-auto px-4 pb-6">
                         <NavLinks
                             items={visibleNav}
                             showLabels
@@ -217,9 +210,9 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
             )}
 
             <main
-                className={`min-w-0 overflow-x-hidden transition-all duration-300 ${
-                    !isMobile ? (collapsed ? 'lg:pl-24' : 'lg:pl-72') : ''
-                } ${isChatPage ? 'flex h-dvh max-h-dvh flex-col overflow-hidden' : ''}`}
+                className={`min-w-0 overflow-x-hidden ${!isMobile ? 'lg:pl-72' : ''} ${
+                    isChatPage ? 'flex h-dvh max-h-dvh flex-col overflow-hidden' : ''
+                }`}
             >
                 <header className="surface-panel sticky top-0 z-20 border-b px-4 py-4 sm:px-8">
                     <div className="flex items-center justify-between gap-4">

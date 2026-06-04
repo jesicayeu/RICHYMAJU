@@ -10,8 +10,10 @@ use App\Models\WhatsappConfig;
 use App\Models\WhatsappSetting;
 use App\Services\WahaService;
 use App\Support\WhatsappChatIdFormatter;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use RuntimeException;
@@ -27,24 +29,31 @@ class WhatsAppController extends Controller
         $settings = WhatsappSetting::current();
         $config = WhatsappConfig::current();
 
-        $users = User::query()
-            ->whereIn('role', ['admin', 'kasir'])
-            ->where('status', 'aktif')
-            ->orderBy('name')
-            ->get(['id', 'name', 'display_name', 'role']);
+        $users = $this->activeUsers();
+        $managedUserIds = $users->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $this->purgeOrphanWhatsappRecords($managedUserIds);
 
         $messageTemplates = WhatsappActionTemplate::query()
             ->latest()
             ->get()
+            ->filter(fn (WhatsappActionTemplate $t) => $this->templateUserId($t) !== null
+                && in_array($this->templateUserId($t), $managedUserIds, true))
             ->map(fn (WhatsappActionTemplate $t) => [
                 'id' => $t->id,
                 'title' => $t->title ?? '',
                 'action_key' => $t->action_key,
                 'action_label' => WhatsappActionTemplate::resolveActionLabel($t->action_key, $users),
+                'contact_trigger_label' => WhatsappActionTemplate::contactTriggerLabelForActionKey(
+                    (string) $t->action_key,
+                    $users,
+                ),
                 'body' => $t->body ?? '',
-            ]);
+            ])
+            ->values();
 
         $contacts = WhatsappChatId::query()
+            ->whereIn('user_id', $managedUserIds)
             ->with('user:id,name,display_name,phone,role')
             ->latest()
             ->get()
@@ -59,7 +68,7 @@ class WhatsAppController extends Controller
             ]);
 
         $accountOptions = User::query()
-            ->whereIn('role', ['admin', 'kasir'])
+            ->managedAccounts()
             ->where('status', 'aktif')
             ->whereNotNull('phone')
             ->where('phone', '!=', '')
@@ -70,6 +79,18 @@ class WhatsAppController extends Controller
                 'label' => ($user->display_name ?: $user->name).' — '.$user->phone,
                 'phone' => $user->phone,
             ]);
+
+        $actionGroups = WhatsappActionTemplate::actionGroupsForUsers($users);
+        $actionTriggerMap = [];
+
+        foreach ($actionGroups as $options) {
+            foreach (array_keys($options) as $actionKey) {
+                $actionTriggerMap[$actionKey] = WhatsappActionTemplate::contactTriggerLabelForActionKey(
+                    $actionKey,
+                    $users,
+                );
+            }
+        }
 
         return Inertia::render('Admin/WhatsApp/Index', [
             'settings' => [
@@ -82,12 +103,83 @@ class WhatsAppController extends Controller
                 'session' => $config->session ?? '',
             ],
             'messageTemplates' => $messageTemplates,
-            'actionGroups' => WhatsappActionTemplate::actionGroupsForUsers($users),
+            'actionGroups' => $actionGroups,
+            'actionTriggerMap' => $actionTriggerMap,
             'actionTypeVariables' => WhatsappActionTemplate::variablesByActionType(),
             'contacts' => $contacts,
             'accountOptions' => $accountOptions,
             'triggerOptions' => WhatsappChatId::TRIGGER_OPTIONS,
+            'testRecipients' => $contacts
+                ->map(fn (array $contact) => [
+                    'id' => $contact['id'],
+                    'label' => $contact['name'].' — '.$contact['phone'],
+                    'phone' => $contact['phone'],
+                    'chat_id' => $contact['chat_id'],
+                ])
+                ->values(),
         ]);
+    }
+
+    public function sendTestMessage(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'contact_id' => ['required', 'integer', Rule::exists('whatsapp_chat_ids', 'id')],
+            'message' => ['required', 'string', 'max:5000'],
+        ]);
+
+        $settings = WhatsappSetting::current();
+
+        if ($settings->connection_status !== 'terhubung') {
+            return response()->json([
+                'ok' => false,
+                'message' => 'WAHA belum terhubung. Hubungkan di tab Config terlebih dahulu.',
+            ], 422);
+        }
+
+        $config = WhatsappConfig::current();
+
+        if (! $config->session) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Session belum dikonfigurasi.',
+            ], 422);
+        }
+
+        $contact = WhatsappChatId::query()
+            ->with('user:id,phone')
+            ->findOrFail($data['contact_id']);
+
+        $phone = $contact->user?->phone;
+
+        if (! $phone) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Nomor HP kontak tidak tersedia.',
+            ], 422);
+        }
+
+        try {
+            $this->waha->useSettings($settings);
+
+            $resolvedChatId = $this->waha->sendTextToPhone(
+                $config->session,
+                $phone,
+                $data['message'],
+            );
+
+            $contact->update(['chat_id' => $resolvedChatId]);
+
+            return response()->json([
+                'ok' => true,
+                'message' => 'Pesan tes berhasil dikirim ke '.$phone.'.',
+                'chat_id' => $resolvedChatId,
+            ]);
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     public function connect(Request $request): RedirectResponse
@@ -170,12 +262,17 @@ class WhatsAppController extends Controller
         $validTriggers = array_keys(WhatsappChatId::TRIGGER_OPTIONS);
 
         $data = $request->validate([
-            'user_id' => ['required', 'exists:users,id'],
+            'user_id' => [
+                'required',
+                Rule::exists('users', 'id')->where(
+                    fn ($query) => $query->whereIn('role', ['admin', 'kasir'])->where('status', 'aktif'),
+                ),
+            ],
             'action_keys' => ['required', 'array', 'min:1'],
             'action_keys.*' => ['string', 'in:'.implode(',', $validTriggers)],
         ]);
 
-        $user = User::query()->findOrFail($data['user_id']);
+        $user = User::query()->managedAccounts()->whereKey($data['user_id'])->firstOrFail();
         $chatId = WhatsappChatIdFormatter::fromPhone($user->phone);
 
         if (! $chatId) {
@@ -201,12 +298,17 @@ class WhatsAppController extends Controller
         $validTriggers = array_keys(WhatsappChatId::TRIGGER_OPTIONS);
 
         $data = $request->validate([
-            'user_id' => ['required', 'exists:users,id'],
+            'user_id' => [
+                'required',
+                Rule::exists('users', 'id')->where(
+                    fn ($query) => $query->whereIn('role', ['admin', 'kasir'])->where('status', 'aktif'),
+                ),
+            ],
             'action_keys' => ['required', 'array', 'min:1'],
             'action_keys.*' => ['string', 'in:'.implode(',', $validTriggers)],
         ]);
 
-        $user = User::query()->findOrFail($data['user_id']);
+        $user = User::query()->managedAccounts()->whereKey($data['user_id'])->firstOrFail();
         $chatId = WhatsappChatIdFormatter::fromPhone($user->phone);
 
         if (! $chatId) {
@@ -247,9 +349,34 @@ class WhatsAppController extends Controller
     private function activeUsers()
     {
         return User::query()
-            ->whereIn('role', ['admin', 'kasir'])
+            ->managedAccounts()
             ->where('status', 'aktif')
             ->orderBy('name')
             ->get(['id', 'name', 'display_name', 'role']);
+    }
+
+    /** @param  list<int>  $managedUserIds */
+    private function purgeOrphanWhatsappRecords(array $managedUserIds): void
+    {
+        WhatsappActionTemplate::query()
+            ->get()
+            ->each(function (WhatsappActionTemplate $template) use ($managedUserIds) {
+                $userId = $this->templateUserId($template);
+
+                if ($userId === null || ! in_array($userId, $managedUserIds, true)) {
+                    $template->delete();
+                }
+            });
+
+        WhatsappChatId::query()
+            ->whereNotIn('user_id', $managedUserIds)
+            ->delete();
+    }
+
+    private function templateUserId(WhatsappActionTemplate $template): ?int
+    {
+        $parsed = WhatsappActionTemplate::parseActionKey((string) $template->action_key);
+
+        return $parsed['user_id'] ?? null;
     }
 }

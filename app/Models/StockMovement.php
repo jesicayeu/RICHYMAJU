@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptedDecimal;
+use App\Casts\EncryptedString;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,7 +26,13 @@ class StockMovement extends Model
     {
         return [
             'occurred_at' => 'datetime',
-            'quantity' => 'decimal:2',
+            'code' => EncryptedString::class,
+            'item_name' => EncryptedString::class,
+            'type' => EncryptedString::class,
+            'quantity' => EncryptedDecimal::class,
+            'unit' => EncryptedString::class,
+            'status' => EncryptedString::class,
+            'notes' => EncryptedString::class,
         ];
     }
 

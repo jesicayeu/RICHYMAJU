@@ -2,6 +2,10 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptedInteger;
+use App\Casts\EncryptedString;
+use App\Casts\StoragePath;
+use App\Services\GoogleDriveService;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -14,12 +18,19 @@ class Message extends Model
 
     protected function casts(): array
     {
-        return ['read_at' => 'datetime'];
+        return [
+            'read_at' => 'datetime',
+            'body' => EncryptedString::class,
+            'attachment_path' => StoragePath::class,
+            'attachment_original_name' => EncryptedString::class,
+            'context_type' => EncryptedString::class,
+            'context_id' => EncryptedInteger::class,
+        ];
     }
 
     protected function attachmentUrl(): Attribute
     {
-        return Attribute::get(fn () => $this->attachment_path ? asset('storage/'.$this->attachment_path) : null);
+        return Attribute::get(fn () => app(GoogleDriveService::class)->url($this->attachment_path));
     }
 
     public function conversation(): BelongsTo

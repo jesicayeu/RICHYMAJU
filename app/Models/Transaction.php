@@ -2,6 +2,10 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptedInteger;
+use App\Casts\EncryptedString;
+use App\Casts\StoragePath;
+use App\Services\GoogleDriveService;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -24,12 +28,21 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 ])]
 class Transaction extends Model
 {
+    protected $appends = ['evidence_url'];
+
     protected function casts(): array
     {
         return [
             'occurred_at' => 'datetime',
             'verified_at' => 'datetime',
-            'amount' => 'integer',
+            'code' => EncryptedString::class,
+            'type' => EncryptedString::class,
+            'amount' => EncryptedInteger::class,
+            'description' => EncryptedString::class,
+            'ui_status' => EncryptedString::class,
+            'evidence_path' => StoragePath::class,
+            'verification_status' => EncryptedString::class,
+            'verification_note' => EncryptedString::class,
         ];
     }
 
@@ -50,6 +63,6 @@ class Transaction extends Model
 
     protected function evidenceUrl(): Attribute
     {
-        return Attribute::get(fn () => $this->evidence_path ? asset('storage/'.$this->evidence_path) : null);
+        return Attribute::get(fn () => app(GoogleDriveService::class)->url($this->evidence_path));
     }
 }

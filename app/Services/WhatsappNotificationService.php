@@ -37,7 +37,7 @@ class WhatsappNotificationService
             }
 
             $actionKey = WhatsappActionTemplate::buildActionKey($actor->id, $actionType);
-            $template = WhatsappActionTemplate::query()->where('action_key', $actionKey)->first();
+            $template = WhatsappActionTemplate::findByActionKey($actionKey);
 
             if (! $template || trim((string) $template->body) === '') {
                 Log::info('WhatsApp notifikasi dilewati: template tidak ditemukan.', [
@@ -48,14 +48,13 @@ class WhatsappNotificationService
                 return;
             }
 
-            $contactTrigger = $this->contactTriggerFor($actionType, $actor);
+            $contactTrigger = WhatsappActionTemplate::contactTriggerForActionType($actionType, $actor->role);
+
             if (! $contactTrigger) {
                 return;
             }
 
-            $contacts = WhatsappChatId::query()
-                ->whereJsonContains('action_keys', $contactTrigger)
-                ->get();
+            $contacts = WhatsappChatId::allMatchingTrigger($contactTrigger);
 
             if ($contacts->isEmpty()) {
                 Log::info('WhatsApp notifikasi dilewati: tidak ada kontak.', [
@@ -79,7 +78,18 @@ class WhatsappNotificationService
 
             foreach ($contacts as $contact) {
                 try {
-                    $this->waha->sendText($config->session, $contact->chat_id, $body);
+                    $phone = $contact->user?->phone;
+
+                    if (! $phone) {
+                        Log::warning('WhatsApp notifikasi dilewati: kontak tanpa nomor HP.', [
+                            'contact_id' => $contact->id,
+                        ]);
+
+                        continue;
+                    }
+
+                    $resolvedChatId = $this->waha->sendTextToPhone($config->session, $phone, $body);
+                    $contact->update(['chat_id' => $resolvedChatId]);
                 } catch (RuntimeException $e) {
                     Log::warning('Gagal kirim WhatsApp notifikasi.', [
                         'contact_id' => $contact->id,
@@ -95,28 +105,5 @@ class WhatsappNotificationService
                 'error' => $e->getMessage(),
             ]);
         }
-    }
-
-    protected function contactTriggerFor(string $actionType, User $actor): ?string
-    {
-        $roleSuffix = $actor->role === 'admin' ? 'pemilik' : 'kasir';
-
-        if (str_starts_with($actionType, 'transaksi_')) {
-            return 'transaksi_'.$roleSuffix;
-        }
-
-        if (str_starts_with($actionType, 'stok_')) {
-            return 'stok_'.$roleSuffix;
-        }
-
-        if (str_starts_with($actionType, 'utang_')) {
-            return 'utang_'.$roleSuffix;
-        }
-
-        if ($actionType === 'kirim_chat') {
-            return $actor->role === 'admin' ? 'chat_pemilik' : 'chat_kasir';
-        }
-
-        return null;
     }
 }

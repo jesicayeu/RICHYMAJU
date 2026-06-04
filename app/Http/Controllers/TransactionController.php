@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Debt;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\EncryptedFieldSearch;
+use App\Services\EncryptedQuery;
+use App\Services\GoogleDriveService;
 use App\Services\WhatsappNotificationService;
 use App\Support\Audit;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -12,15 +15,16 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class TransactionController extends Controller
 {
+    public function __construct(
+        private GoogleDriveService $drive,
+    ) {}
     public function index(Request $request): Response
     {
         $filters = $request->only([
@@ -56,17 +60,19 @@ class TransactionController extends Controller
             ? (int) ($filters['per_page'] ?? 10)
             : 10;
 
-        $transactions = (clone $filteredQuery)
-            ->orderBy($sort, $direction)
-            ->paginate($perPage)
-            ->withQueryString();
+        $transactions = EncryptedQuery::paginate(
+            clone $filteredQuery,
+            $perPage,
+            $sort,
+            $direction,
+        );
 
         $isAdmin = $request->user()->isAdmin();
 
         $payload = [
             'transactions' => $transactions,
             'filters' => $filters,
-            'cashiers' => User::where('role', 'kasir')->orderBy('name')->get(['id', 'name', 'display_name', 'username']),
+            'cashiers' => User::where('role', 'kasir')->get(['id', 'name', 'display_name', 'username'])->sortBy('name')->values(),
             'isAdmin' => $isAdmin,
         ];
 
@@ -210,7 +216,7 @@ class TransactionController extends Controller
             );
 
             if ($transaction->evidence_path) {
-                Storage::disk('public')->delete($transaction->evidence_path);
+                $this->drive->delete($transaction->evidence_path);
             }
             $transaction->delete();
         });
@@ -373,28 +379,7 @@ class TransactionController extends Controller
             return null;
         }
 
-        $file = $request->file('evidence');
-        $filename = $this->uniqueOriginalFilename($file, $folder);
-
-        return $file->storeAs($folder, $filename, 'public');
-    }
-
-    private function uniqueOriginalFilename(UploadedFile $file, string $folder): string
-    {
-        $original = basename($file->getClientOriginalName());
-        $extension = strtolower($file->getClientOriginalExtension() ?: $file->guessExtension() ?: 'jpg');
-        $basename = pathinfo($original, PATHINFO_FILENAME);
-        $safe = preg_replace('/[^a-zA-Z0-9._-]/', '_', $basename) ?: 'gambar';
-        $filename = "{$safe}.{$extension}";
-        $disk = Storage::disk('public');
-        $counter = 1;
-
-        while ($disk->exists("{$folder}/{$filename}")) {
-            $filename = "{$safe}-{$counter}.{$extension}";
-            $counter++;
-        }
-
-        return $filename;
+        return $this->drive->upload($request->file('evidence'), $folder);
     }
 
     private function normalizeAmount(mixed $value): int|string
@@ -426,12 +411,12 @@ class TransactionController extends Controller
 
     private function applyFilters(Builder $query, array $filters): void
     {
-        $query->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v));
-        $query->when($filters['ui_status'] ?? null, fn ($q, $v) => $q->where('ui_status', $v));
-        $query->when($filters['verification_status'] ?? null, fn ($q, $v) => $q->where('verification_status', $v));
+        $query->when($filters['type'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'type', $v));
+        $query->when($filters['ui_status'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'ui_status', $v));
+        $query->when($filters['verification_status'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'verification_status', $v));
         $query->when($filters['user_id'] ?? null, fn ($q, $v) => $q->where('user_id', $v));
         $query->when($filters['date'] ?? null, fn ($q, $v) => $q->whereDate('occurred_at', $v));
-        $query->when($filters['amount'] ?? null, fn ($q, $v) => $q->where('amount', $v));
+        $query->when($filters['amount'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'amount', $v));
     }
 
     private function applySearch(Builder $query, ?string $search): void
@@ -441,26 +426,40 @@ class TransactionController extends Controller
         }
 
         $query->where(function (Builder $q) use ($search) {
-            $q->where('code', 'like', "%{$search}%")
-                ->orWhere('description', 'like', "%{$search}%")
-                ->orWhere('amount', 'like', "%{$search}%")
-                ->orWhereHas('user', function (Builder $userQuery) use ($search) {
-                    $userQuery->where('name', 'like', "%{$search}%")
-                        ->orWhere('display_name', 'like', "%{$search}%")
-                        ->orWhere('username', 'like', "%{$search}%");
-                });
+            $encryptedIds = EncryptedFieldSearch::matchingIds($q, $search, ['description', 'code', 'amount']);
+            $userIds = User::query()
+                ->get()
+                ->filter(fn (User $user) => EncryptedFieldSearch::matchesTerm($user, $search, ['name', 'display_name', 'username']))
+                ->pluck('id')
+                ->all();
+
+            if ($encryptedIds === [] && $userIds === []) {
+                $q->whereRaw('0 = 1');
+
+                return;
+            }
+
+            $q->where(function (Builder $inner) use ($encryptedIds, $userIds) {
+                if ($encryptedIds !== []) {
+                    $inner->whereIn('id', $encryptedIds);
+                }
+
+                if ($userIds !== []) {
+                    $inner->orWhereIn('user_id', $userIds);
+                }
+            });
         });
     }
 
     private function buildSummary(Builder $query): array
     {
-        $income = (clone $query)->where('type', 'pemasukan')->sum('amount');
-        $expense = (clone $query)->where('type', 'pengeluaran')->sum('amount');
+        $income = (int) EncryptedQuery::sum($query, 'amount', fn (Transaction $t) => $t->type === 'pemasukan');
+        $expense = (int) EncryptedQuery::sum($query, 'amount', fn (Transaction $t) => $t->type === 'pengeluaran');
 
         return [
-            'income' => (int) $income,
-            'expense' => (int) $expense,
-            'balance' => (int) $income - (int) $expense,
+            'income' => $income,
+            'expense' => $expense,
+            'balance' => $income - $expense,
             'count' => (clone $query)->count(),
             'cashierCount' => (clone $query)->distinct('user_id')->count('user_id'),
             'activeCashiers' => User::where('role', 'kasir')->where('status', 'aktif')->count(),
@@ -484,22 +483,18 @@ class TransactionController extends Controller
         $start = Carbon::today()->subDays($days);
         $points = collect(range($days, 0))->map(function (int $offset) use ($baseQuery, $type, $start) {
             $date = (clone $start)->addDays($offset);
+            $dayQuery = (clone $baseQuery)->whereDate('occurred_at', $date);
 
             return [
                 'label' => $date->format('d M'),
-                'value' => (int) (clone $baseQuery)
-                    ->where('type', $type)
-                    ->whereDate('occurred_at', $date)
-                    ->sum('amount'),
+                'value' => (int) EncryptedQuery::sum($dayQuery, 'amount', fn (Transaction $t) => $t->type === $type),
             ];
         })->values();
 
-        $rangeQuery = (clone $baseQuery)
-            ->where('type', $type)
-            ->whereDate('occurred_at', '>=', $start);
+        $rangeQuery = (clone $baseQuery)->whereDate('occurred_at', '>=', $start);
 
         return [
-            'total' => (int) $rangeQuery->sum('amount'),
+            'total' => (int) EncryptedQuery::sum($rangeQuery, 'amount', fn (Transaction $t) => $t->type === $type),
             'points' => $points->values()->all(),
             'period' => $period,
         ];

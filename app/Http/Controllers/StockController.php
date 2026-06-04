@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\StockMovement;
+use App\Services\EncryptedFieldSearch;
+use App\Services\EncryptedQuery;
 use App\Services\WhatsappNotificationService;
 use App\Support\Audit;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -46,10 +48,12 @@ class StockController extends Controller
             ? (int) ($filters['per_page'] ?? ($request->user()->isAdmin() ? 10 : 8))
             : ($request->user()->isAdmin() ? 10 : 8);
 
-        $movements = (clone $filteredQuery)
-            ->orderBy($sort, $direction)
-            ->paginate($perPage)
-            ->withQueryString();
+        $movements = EncryptedQuery::paginate(
+            clone $filteredQuery,
+            $perPage,
+            $sort,
+            $direction,
+        );
 
         $isAdmin = $request->user()->isAdmin();
 
@@ -198,15 +202,25 @@ class StockController extends Controller
 
     private function applyFilters(Builder $query, array $filters): void
     {
-        $query->when($filters['search'] ?? null, fn ($q, $v) => $q->where(fn ($qq) => $qq
-            ->where('item_name', 'like', "%{$v}%")
-            ->orWhere('code', 'like', "%{$v}%")
-            ->orWhere('notes', 'like', "%{$v}%")));
-        $query->when($filters['item_name'] ?? null, fn ($q, $v) => $q->where('item_name', 'like', "%{$v}%"));
-        $query->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v));
-        $query->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v));
+        $query->when($filters['search'] ?? null, function (Builder $q, string $v) {
+            $encryptedIds = EncryptedFieldSearch::matchingIds($q, $v, ['item_name', 'notes', 'code', 'quantity', 'unit']);
+
+            if ($encryptedIds === []) {
+                $q->whereRaw('0 = 1');
+
+                return;
+            }
+
+            $q->whereIn('id', $encryptedIds);
+        });
+        $query->when($filters['item_name'] ?? null, function (Builder $q, string $v) {
+            $ids = EncryptedFieldSearch::matchingIds($q, $v, ['item_name']);
+            $q->whereIn('id', $ids !== [] ? $ids : [-1]);
+        });
+        $query->when($filters['type'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'type', $v));
+        $query->when($filters['status'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'status', $v));
         $query->when($filters['date'] ?? null, fn ($q, $v) => $q->whereDate('occurred_at', $v));
-        $query->when($filters['quantity'] ?? null, fn ($q, $v) => $q->where('quantity', $v));
+        $query->when($filters['quantity'] ?? null, fn ($q, $v) => EncryptedQuery::applyExactFilter($q, 'quantity', $v));
     }
 
     private function authorizeStock(StockMovement $stock, Request $request): void
@@ -219,9 +233,9 @@ class StockController extends Controller
     private function buildSummary(Builder $query): array
     {
         return [
-            'itemTypes' => (int) (clone $query)->distinct('item_name')->count('item_name'),
-            'incoming' => (int) (clone $query)->where('type', 'masuk')->count(),
-            'outgoing' => (int) (clone $query)->where('type', 'keluar')->count(),
+            'itemTypes' => (clone $query)->get()->pluck('item_name')->filter()->unique()->count(),
+            'incoming' => EncryptedQuery::countWhere($query, 'type', 'masuk'),
+            'outgoing' => EncryptedQuery::countWhere($query, 'type', 'keluar'),
             'count' => (int) (clone $query)->count(),
         ];
     }

@@ -12,7 +12,7 @@ import { PageProps, User, UserPresence } from '@/types';
 type ChatMessagePayload = { message: any };
 
 type ConversationItem = {
-    id: number;
+    id: number | null;
     other: MessageUser;
     lastMessage?: any;
 };
@@ -566,15 +566,25 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
             form.setData('attachment', null);
             if (fileInputRef.current) fileInputRef.current.value = '';
 
+            if (!item.id) {
+                setPendingRecipient(item.other ?? null);
+                setActiveId(null);
+                setMessages([]);
+                form.setData('conversation_id', '');
+                form.setData('recipient_id', item.other?.id ?? '');
+                openChatView();
+                return;
+            }
+
             setPendingRecipient(null);
             setActiveId(item.id);
             setMessages(item.lastMessage ? [item.lastMessage] : []);
             form.setData('conversation_id', item.id);
             form.setData('recipient_id', '');
             setUnread((prev) => {
-                if (!prev[item.id]) return prev;
+                if (!prev[item.id!]) return prev;
                 const next = { ...prev };
-                delete next[item.id];
+                delete next[item.id!];
                 return next;
             });
             openChatView();
@@ -822,23 +832,14 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
                     </div>
                     <div className="scrollbar-hidden min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
                         {filteredConversations.map((item) => {
-                            const isActive = item.id === activeId && !pendingRecipient;
-                            const unreadCount = unread[item.id] ?? 0;
-                            return (
-                                <ConversationListRow
-                                    key={item.id}
-                                    open={openSwipeId === item.id}
-                                    onOpenChange={(isOpen) => setOpenSwipeId(isOpen ? item.id : null)}
-                                    onDelete={() => requestDeleteConversation(item.id)}
-                                    onSelect={() => {
-                                        if (openSwipeId === item.id) {
-                                            setOpenSwipeId(null);
-                                            return;
-                                        }
-                                        selectConversation(item);
-                                    }}
-                                    deleting={deletingId === item.id}
-                                >
+                            const rowKey = item.id ?? `contact-${item.other?.id}`;
+                            const isActive =
+                                (item.id !== null && item.id === activeId && !pendingRecipient) ||
+                                (item.id === null && pendingRecipient?.id === item.other?.id);
+                            const unreadCount = item.id ? (unread[item.id] ?? 0) : 0;
+                            const canDelete = item.id !== null;
+
+                            const rowContent = (
                                     <div
                                         role="button"
                                         tabIndex={0}
@@ -871,10 +872,38 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
                                                 ) : null}
                                             </div>
                                             <div className="truncate text-sm text-slate-500 dark:text-slate-400">
-                                                {conversationLastPreview(item.lastMessage)}
+                                                {item.lastMessage
+                                                    ? conversationLastPreview(item.lastMessage)
+                                                    : 'Mulai percakapan'}
                                             </div>
                                         </div>
                                     </div>
+                            );
+
+                            if (!canDelete) {
+                                return (
+                                    <div key={rowKey} onClick={() => selectConversation(item)}>
+                                        {rowContent}
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <ConversationListRow
+                                    key={rowKey}
+                                    open={openSwipeId === item.id}
+                                    onOpenChange={(isOpen) => setOpenSwipeId(isOpen ? item.id : null)}
+                                    onDelete={() => requestDeleteConversation(item.id!)}
+                                    onSelect={() => {
+                                        if (openSwipeId === item.id) {
+                                            setOpenSwipeId(null);
+                                            return;
+                                        }
+                                        selectConversation(item);
+                                    }}
+                                    deleting={deletingId === item.id}
+                                >
+                                    {rowContent}
                                 </ConversationListRow>
                             );
                         })}

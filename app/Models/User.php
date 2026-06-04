@@ -3,16 +3,20 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Casts\EncryptedString;
+use App\Casts\StoragePath;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use App\Services\GoogleDriveService;
 use App\Services\PresenceService;
 use Illuminate\Support\Facades\Cache;
 
@@ -37,6 +41,10 @@ class User extends Authenticatable
             'last_login_at' => 'datetime',
             'last_seen_at' => 'datetime',
             'password' => 'hashed',
+            'name' => EncryptedString::class,
+            'display_name' => EncryptedString::class,
+            'phone' => EncryptedString::class,
+            'avatar_path' => StoragePath::class,
         ];
     }
 
@@ -48,6 +56,33 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return $this->status === 'aktif';
+    }
+
+    /** Akun admin/kasir yang tampil di Kelola Akun (bukan soft delete). */
+    public function scopeManagedAccounts(Builder $query): Builder
+    {
+        return $query->whereIn('role', ['admin', 'kasir']);
+    }
+
+    /** @return list<int> */
+    public static function managedAccountIds(): array
+    {
+        return static::query()
+            ->managedAccounts()
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    /** @return list<int> */
+    public static function activeManagedAccountIds(): array
+    {
+        return static::query()
+            ->managedAccounts()
+            ->where('status', 'aktif')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 
     public function transactions(): HasMany
@@ -77,7 +112,9 @@ class User extends Authenticatable
 
     protected function avatarUrl(): Attribute
     {
-        return Attribute::get(fn () => $this->avatar_path ? asset('storage/'.$this->avatar_path) : null);
+        return Attribute::get(fn () => $this->avatar_path
+            ? app(GoogleDriveService::class)->url($this->avatar_path)
+            : null);
     }
 
     public function isOnline(): bool

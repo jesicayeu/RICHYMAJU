@@ -1,4 +1,5 @@
 import Badge from '@/Components/Badge';
+import DetailMedia from '@/Components/DetailMedia';
 import AppLayout from '@/Layouts/AppLayout';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import { dateTime, humanTransactionUiStatus, rupiah, userDisplayName } from '@/lib/format';
@@ -50,11 +51,7 @@ export default function TransactionShow({ transaction, isAdmin }: any) {
                             {transaction.verified_at ? ` · ${dateTime(transaction.verified_at)}` : ''}
                         </p>
                     )}
-                    {transaction.evidence_url && (
-                        <a href={transaction.evidence_url} target="_blank" className="btn-muted">
-                            Lihat Bukti
-                        </a>
-                    )}
+                    <DetailMedia url={transaction.evidence_url} label="Bukti Transaksi" />
                     <div className="flex flex-wrap gap-2">
                         <Link href={route('transactions.edit', transaction.id)} className="btn-muted">
                             <Edit className="h-4 w-4" /> Edit

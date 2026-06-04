@@ -16,9 +16,10 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        User::updateOrCreate(
-            ['username' => 'admin'],
+        $this->seedUser(
+            ['email' => 'jesicayeuyanan04@gmail.com'],
             [
+                'username' => 'admin',
                 'name' => 'Pemilik Richy Maju',
                 'display_name' => 'Pemilik Toko',
                 'email' => 'jesicayeuyanan04@gmail.com',
@@ -28,9 +29,10 @@ class DatabaseSeeder extends Seeder
             ],
         );
 
-        User::updateOrCreate(
-            ['username' => 'kasir1'],
+        $this->seedUser(
+            ['email' => 'kasir1@richymaju.my.id'],
             [
+                'username' => 'kasir1',
                 'name' => 'Kasir Richy Maju',
                 'display_name' => 'Kasir 1',
                 'email' => 'kasir1@richymaju.my.id',
@@ -39,5 +41,17 @@ class DatabaseSeeder extends Seeder
                 'status' => 'aktif',
             ],
         );
+    }
+
+    /** @param  array<string, mixed>  $match
+     * @param  array<string, mixed>  $attributes
+     */
+    protected function seedUser(array $match, array $attributes): void
+    {
+        $user = User::withTrashed()->updateOrCreate($match, $attributes);
+
+        if ($user->trashed()) {
+            $user->restore();
+        }
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Admin\EncryptionController;
+use App\Http\Controllers\Admin\GoogleDriveController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\WhatsAppController;
 use App\Http\Controllers\Webhook\WahaWebhookController;
@@ -7,6 +9,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\PresenceController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DebtController;
+use App\Http\Controllers\MediaController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StockController;
@@ -19,6 +22,7 @@ Route::post('/webhooks/waha/{user}', WahaWebhookController::class)->name('webhoo
 
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/media', [MediaController::class, 'show'])->name('media.show');
 
     Route::resource('transactions', TransactionController::class)->except(['destroy']);
     Route::delete('/transactions/{transaction}', [TransactionController::class, 'destroy'])->middleware('role:admin')->name('transactions.destroy');
@@ -54,6 +58,18 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
+        Route::get('/google-drive', [GoogleDriveController::class, 'index'])->name('google-drive.index');
+        Route::post('/google-drive/connect', [GoogleDriveController::class, 'connect'])->name('google-drive.connect');
+        Route::post('/google-drive/folders', [GoogleDriveController::class, 'updateFolders'])->name('google-drive.folders');
+        Route::get('/google-drive/callback', [GoogleDriveController::class, 'callback'])->name('google-drive.callback');
+        Route::post('/google-drive/disconnect', [GoogleDriveController::class, 'disconnect'])->name('google-drive.disconnect');
+
+        Route::get('/encryption', [EncryptionController::class, 'index'])->name('encryption.index');
+        Route::post('/encryption/text', [EncryptionController::class, 'updateText'])->name('encryption.text');
+        Route::post('/encryption/file', [EncryptionController::class, 'updateFile'])->name('encryption.file');
+        Route::post('/encryption/migrate-storage-paths', [EncryptionController::class, 'migrateStoragePaths'])->name('encryption.migrate-storage-paths');
+        Route::post('/encryption/reencrypt-all', [EncryptionController::class, 'reencryptAll'])->name('encryption.reencrypt-all');
+
         Route::resource('users', UserController::class)->only(['index', 'create', 'store', 'edit', 'update', 'show', 'destroy']);
         Route::patch('/users/{user}/toggle-active', [UserController::class, 'toggle'])->name('users.toggle');
         Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
@@ -66,6 +82,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/whatsapp/contacts', [WhatsAppController::class, 'storeContact'])->name('whatsapp.contacts.store');
         Route::put('/whatsapp/contacts/{contact}', [WhatsAppController::class, 'updateContact'])->name('whatsapp.contacts.update');
         Route::delete('/whatsapp/contacts/{contact}', [WhatsAppController::class, 'destroyContact'])->name('whatsapp.contacts.destroy');
+        Route::post('/whatsapp/test-send', [WhatsAppController::class, 'sendTestMessage'])->name('whatsapp.test-send');
     });
 });
 

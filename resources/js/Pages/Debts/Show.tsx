@@ -1,4 +1,5 @@
 import Badge from '@/Components/Badge';
+import DetailMedia from '@/Components/DetailMedia';
 import AppLayout from '@/Layouts/AppLayout';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import { dateTime, humanDebtStatus, registeredUserName, rupiah, userDisplayName } from '@/lib/format';
@@ -64,11 +65,7 @@ export default function DebtShow({ debt, isAdmin }: any) {
                         </dl>
                     </div>
 
-                    {debt.evidence_url && (
-                        <a href={debt.evidence_url} target="_blank" className="btn-muted">
-                            Lihat Bukti
-                        </a>
-                    )}
+                    <DetailMedia url={debt.evidence_url} label="Bukti Utang" />
 
                     <div className="flex flex-wrap gap-2">
                         <Link href={route('debts.edit', debt.id)} className="btn-muted">

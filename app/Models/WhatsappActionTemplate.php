@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Casts\EncryptedJson;
+use App\Casts\EncryptedString;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
@@ -34,9 +36,68 @@ class WhatsappActionTemplate extends Model
         'body',
     ];
 
+    protected function casts(): array
+    {
+        return [
+            'title' => EncryptedString::class,
+            'action_key' => EncryptedString::class,
+            'body' => EncryptedString::class,
+        ];
+    }
+
     public static function buildActionKey(int $userId, string $actionType): string
     {
         return "user_{$userId}_{$actionType}";
+    }
+
+    public static function findByActionKey(string $actionKey): ?self
+    {
+        return static::query()
+            ->get()
+            ->first(fn (self $template) => (string) $template->action_key === $actionKey);
+    }
+
+    public static function contactTriggerForActionType(string $actionType, string $role): ?string
+    {
+        $roleSuffix = $role === 'admin' ? 'pemilik' : 'kasir';
+
+        if (str_starts_with($actionType, 'transaksi_')) {
+            return 'transaksi_'.$roleSuffix;
+        }
+
+        if (str_starts_with($actionType, 'stok_')) {
+            return 'stok_'.$roleSuffix;
+        }
+
+        if (str_starts_with($actionType, 'utang_')) {
+            return 'utang_'.$roleSuffix;
+        }
+
+        if ($actionType === 'kirim_chat') {
+            return $role === 'admin' ? 'chat_pemilik' : 'chat_kasir';
+        }
+
+        return null;
+    }
+
+    /** @param  \Illuminate\Support\Collection<int, User>  $users */
+    public static function contactTriggerLabelForActionKey(string $actionKey, Collection $users): ?string
+    {
+        $parsed = self::parseActionKey($actionKey);
+
+        if (! $parsed) {
+            return null;
+        }
+
+        $user = $users->firstWhere('id', $parsed['user_id']);
+
+        if (! $user) {
+            return null;
+        }
+
+        $trigger = self::contactTriggerForActionType($parsed['action_type'], $user->role);
+
+        return $trigger ? (WhatsappChatId::TRIGGER_OPTIONS[$trigger] ?? null) : null;
     }
 
     /** @return array{user_id: int, action_type: string}|null */

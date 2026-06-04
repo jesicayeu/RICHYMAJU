@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\WhatsappAccount;
 use App\Models\WhatsappSetting;
 use App\Models\WhatsappWebhook;
+use App\Support\WhatsappChatIdFormatter;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -20,13 +21,23 @@ class WahaService
     {
         $settings ??= WhatsappSetting::current();
 
-        $this->baseUrl = $settings->host_url
-            ? rtrim($settings->host_url, '/')
-            : rtrim((string) config('waha.base_url'), '/');
-
+        $this->baseUrl = $this->resolveBaseUrl($settings);
         $this->apiKey = $settings->api_key ?: config('waha.api_key');
 
         return $this;
+    }
+
+    protected function resolveBaseUrl(WhatsappSetting $settings): string
+    {
+        $configured = $settings->host_url ? rtrim($settings->host_url, '/') : '';
+        $internal = rtrim((string) config('waha.base_url'), '/');
+        $public = rtrim((string) config('waha.public_url'), '/');
+
+        if ($configured !== '' && $public !== '' && $configured === $public && $internal !== '') {
+            return $internal;
+        }
+
+        return $configured !== '' ? $configured : $internal;
     }
 
     protected function client(): PendingRequest
@@ -76,6 +87,95 @@ class WahaService
         $this->ensureSuccess($response);
 
         return $response->json();
+    }
+
+    public function ensureSessionWorking(string $sessionName): void
+    {
+        $session = $this->getSession($sessionName);
+
+        if (! $session) {
+            throw new RuntimeException("Session WhatsApp \"{$sessionName}\" tidak ditemukan.");
+        }
+
+        $status = $session['status'] ?? null;
+
+        if ($status !== 'WORKING') {
+            throw new RuntimeException(match ($status) {
+                'SCAN_QR_CODE' => 'WhatsApp perlu scan QR di dashboard WAHA.',
+                'FAILED' => 'Session WhatsApp gagal. Mulai ulang session di dashboard WAHA.',
+                'STARTING' => 'Session WhatsApp masih menyala. Tunggu sebentar lalu coba lagi.',
+                'STOPPED' => 'Session WhatsApp berhenti. Mulai session di dashboard WAHA.',
+                default => 'Session WhatsApp tidak aktif (status: '.($status ?? 'tidak diketahui').').',
+            });
+        }
+    }
+
+    public function phoneToInternationalDigits(?string $phone): string
+    {
+        $chatId = WhatsappChatIdFormatter::fromPhone($phone);
+
+        if ($chatId === null) {
+            throw new RuntimeException('Nomor HP tidak valid.');
+        }
+
+        return str_replace('@c.us', '', $chatId);
+    }
+
+    public function resolveChatIdFromPhone(string $sessionName, ?string $phone): string
+    {
+        $digits = $this->phoneToInternationalDigits($phone);
+
+        $response = $this->client()->get('/api/contacts/check-exists', [
+            'phone' => $digits,
+            'session' => $sessionName,
+        ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException('Gagal memverifikasi nomor di WhatsApp.');
+        }
+
+        $data = $response->json();
+
+        if (! ($data['numberExists'] ?? false)) {
+            throw new RuntimeException('Nomor tidak terdaftar di WhatsApp.');
+        }
+
+        if (! empty($data['chatId']) && is_string($data['chatId'])) {
+            return $data['chatId'];
+        }
+
+        return $digits.'@c.us';
+    }
+
+    public function chatIdBelongsToPhone(string $sessionName, string $chatId, ?string $phone): bool
+    {
+        $expectedPn = WhatsappChatIdFormatter::fromPhone($phone);
+
+        if ($expectedPn === null) {
+            return false;
+        }
+
+        if ($chatId === $expectedPn) {
+            return true;
+        }
+
+        if (! str_ends_with($chatId, '@lid')) {
+            return false;
+        }
+
+        $lid = explode('@', $chatId)[0] ?? '';
+
+        if ($lid === '') {
+            return false;
+        }
+
+        $response = $this->client()->get("/api/{$sessionName}/lids/{$lid}");
+
+        if (! $response->successful()) {
+            return false;
+        }
+
+        return ($response->json()['pn'] ?? null) === $expectedPn;
     }
 
     public function createSession(string $sessionName, array $config = []): array
@@ -151,6 +251,34 @@ class WahaService
 
     public function sendText(string $sessionName, string $chatId, string $text): array
     {
+        $resolvedChatId = $this->sendTextToChat($sessionName, $chatId, $text);
+
+        return ['chatId' => $resolvedChatId];
+    }
+
+    public function sendTextToPhone(string $sessionName, ?string $phone, string $text): string
+    {
+        $this->ensureSessionWorking($sessionName);
+        $resolvedChatId = $this->resolveChatIdFromPhone($sessionName, $phone);
+
+        $response = $this->client()->post('/api/sendText', [
+            'session' => $sessionName,
+            'chatId' => $resolvedChatId,
+            'text' => $text,
+        ]);
+        $this->ensureSuccess($response);
+
+        return $resolvedChatId;
+    }
+
+    public function sendTextToChat(string $sessionName, string $chatId, string $text, ?string $phone = null): string
+    {
+        if ($phone !== null) {
+            return $this->sendTextToPhone($sessionName, $phone, $text);
+        }
+
+        $this->ensureSessionWorking($sessionName);
+
         $response = $this->client()->post('/api/sendText', [
             'session' => $sessionName,
             'chatId' => $chatId,
@@ -158,7 +286,7 @@ class WahaService
         ]);
         $this->ensureSuccess($response);
 
-        return $response->json();
+        return $chatId;
     }
 
     public function mapWahaStatus(?string $wahaStatus): string
@@ -237,8 +365,27 @@ class WahaService
 
         if (! $ok) {
             throw new RuntimeException(
-                'WAHA API error: '.$response->status().' - '.$response->body()
+                'WAHA API error: '.$response->status().' - '.$this->parseErrorMessage($response)
             );
         }
+    }
+
+    protected function parseErrorMessage(Response $response): string
+    {
+        $json = $response->json();
+
+        if (is_array($json)) {
+            if (! empty($json['message']) && is_string($json['message'])) {
+                return $json['message'];
+            }
+
+            if (! empty($json['error']) && is_string($json['error'])) {
+                return $json['error'];
+            }
+        }
+
+        $body = trim($response->body());
+
+        return $body !== '' ? $body : 'Unknown error';
     }
 }
