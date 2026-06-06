@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\EncryptionController;
 use App\Http\Controllers\Admin\GoogleDriveController;
+use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\WhatsAppController;
 use App\Http\Controllers\Webhook\WahaWebhookController;
@@ -15,8 +16,13 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
-Route::redirect('/', '/dashboard');
+Route::get('/', function () {
+    return auth()->check()
+        ? redirect()->route('dashboard')
+        : redirect()->route('login');
+})->name('welcome');
 
 Route::post('/webhooks/waha/{user}', WahaWebhookController::class)->name('webhooks.waha');
 
@@ -58,9 +64,12 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
+        Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+
         Route::get('/google-drive', [GoogleDriveController::class, 'index'])->name('google-drive.index');
         Route::post('/google-drive/connect', [GoogleDriveController::class, 'connect'])->name('google-drive.connect');
         Route::post('/google-drive/folders', [GoogleDriveController::class, 'updateFolders'])->name('google-drive.folders');
+        Route::post('/google-drive/sheets', [GoogleDriveController::class, 'updateSheets'])->name('google-drive.sheets');
         Route::get('/google-drive/callback', [GoogleDriveController::class, 'callback'])->name('google-drive.callback');
         Route::post('/google-drive/disconnect', [GoogleDriveController::class, 'disconnect'])->name('google-drive.disconnect');
 

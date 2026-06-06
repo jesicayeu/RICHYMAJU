@@ -1,20 +1,17 @@
 import Badge from '@/Components/Badge';
 import StatCard from '@/Components/StatCard';
 import AppLayout from '@/Layouts/AppLayout';
-import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import { dateTimeCompact, humanDebtStatus, registeredUserName, rupiah, rupiahShort } from '@/lib/format';
 import { Link, router } from '@inertiajs/react';
 import {
     CheckCircle2,
     ClipboardList,
-    Edit,
     Eye,
     FileDown,
     Search,
     ShieldCheck,
     TrendingDown,
     TrendingUp,
-    Trash2,
     Users,
     Wallet,
 } from 'lucide-react';
@@ -175,15 +172,7 @@ function PaginationFooter({
     );
 }
 
-function DebtsTable({
-    debts,
-    isAdmin,
-    onRequestDelete,
-}: {
-    debts: any;
-    isAdmin: boolean;
-    onRequestDelete: (id: number) => void;
-}) {
+function DebtsTable({ debts, isAdmin }: { debts: any; isAdmin: boolean }) {
     const colSpan = isAdmin ? 7 : 6;
 
     return (
@@ -245,35 +234,6 @@ function DebtsTable({
                                             <Eye className="h-3.5 w-3.5 shrink-0" />
                                             <span className="btn-label">Detail</span>
                                         </Link>
-                                        {isAdmin && (
-                                            <>
-                                                <Link
-                                                    href={route('debts.show', debt.id)}
-                                                    className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs"
-                                                    title="Verifikasi"
-                                                >
-                                                    <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                                                    <span className="btn-label">Verifikasi</span>
-                                                </Link>
-                                                <Link
-                                                    href={route('debts.edit', debt.id)}
-                                                    className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs"
-                                                    title="Edit"
-                                                >
-                                                    <Edit className="h-3.5 w-3.5 shrink-0" />
-                                                    <span className="btn-label">Edit</span>
-                                                </Link>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => onRequestDelete(debt.id)}
-                                                    className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs text-rose-600"
-                                                    title="Hapus"
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                                                    <span className="btn-label">Hapus</span>
-                                                </button>
-                                            </>
-                                        )}
                                     </div>
                                 </td>
                             </tr>
@@ -323,12 +283,6 @@ export default function DebtsIndex({
         e.preventDefault();
         navigate();
     };
-
-    const { requestDelete, deleteModal } = useConfirmDelete({
-        buildRoute: (id) => route('debts.destroy', id),
-        title: 'Hapus Utang',
-        message: () => 'Yakin hapus utang ini? Tindakan tidak dapat dibatalkan.',
-    });
 
     return (
         <AppLayout title="Utang">
@@ -450,7 +404,7 @@ export default function DebtsIndex({
                     </form>
                 </div>
 
-                <DebtsTable debts={debts} isAdmin={isAdmin} onRequestDelete={(id) => requestDelete({ id })} />
+                <DebtsTable debts={debts} isAdmin={isAdmin} />
                 <PaginationFooter
                     debts={debts}
                     filter={filter}
@@ -460,7 +414,6 @@ export default function DebtsIndex({
                     }}
                 />
             </div>
-            {deleteModal}
         </AppLayout>
     );
 }

@@ -2,12 +2,24 @@ import Badge from '@/Components/Badge';
 import DetailMedia from '@/Components/DetailMedia';
 import AppLayout from '@/Layouts/AppLayout';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
-import { dateTime, humanDebtStatus, registeredUserName, rupiah, userDisplayName } from '@/lib/format';
+import { dateTime, humanDebtStatus, registeredUserName, rupiah } from '@/lib/format';
 import { Link, useForm } from '@inertiajs/react';
 import { Edit, ShieldCheck, Trash2 } from 'lucide-react';
+import type { ReactNode } from 'react';
+
+function DetailCard({ label, children }: { label: string; children: ReactNode }) {
+    return (
+        <div className="detail-metric-card">
+            <div className="detail-metric-label">{label}</div>
+            <div className="mt-2">{children}</div>
+        </div>
+    );
+}
 
 export default function DebtShow({ debt, isAdmin }: any) {
     const verify = useForm({ verification_status: 'disetujui', verification_note: '' });
+    const isLocked = debt.verification_status === 'disetujui';
+    const canVerify = isAdmin && debt.verification_status === 'menunggu';
     const { requestDelete, deleteModal } = useConfirmDelete({
         buildRoute: (id) => route('debts.destroy', id),
         title: 'Hapus Utang',
@@ -18,73 +30,64 @@ export default function DebtShow({ debt, isAdmin }: any) {
         <AppLayout title="Detail Utang">
             <div className="grid gap-6 xl:grid-cols-3">
                 <div className="glass-card space-y-5 p-6 xl:col-span-2">
-                    <div>
-                        <h2 className="text-2xl font-black">Detail Utang</h2>
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-3">
+                            <h2 className="text-2xl font-black">Detail Utang</h2>
+                            {!isLocked && (
+                                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                    <Link href={route('debts.edit', debt.id)} className="btn-primary">
+                                        <Edit className="h-4 w-4" /> Edit
+                                    </Link>
+                                    {isAdmin && (
+                                        <button
+                                            type="button"
+                                            onClick={() => requestDelete({ id: debt.id })}
+                                            className="btn-muted text-rose-600"
+                                        >
+                                            <Trash2 className="h-4 w-4" /> Hapus
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                         <p className="text-sm text-slate-500">
-                            {dateTime(debt.occurred_at)} oleh {registeredUserName(debt.user)}
+                            {dateTime(debt.occurred_at)} · {registeredUserName(debt.user)}
                         </p>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
-                        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
-                            <div className="text-sm text-slate-500">Verifikasi</div>
-                            <Badge value={debt.verification_status} />
+                    <div className="space-y-4">
+                        <div className="detail-metric-grid">
+                            <DetailCard label="Nominal">
+                                <p className="detail-metric-value">{rupiah(debt.amount)}</p>
+                            </DetailCard>
+                            <DetailCard label="Status">
+                                <Badge
+                                    variant="solid"
+                                    value={debt.status}
+                                    label={humanDebtStatus(debt.status)}
+                                />
+                            </DetailCard>
+                            <DetailCard label="Pihak">
+                                <p className="detail-metric-value">{debt.party_name}</p>
+                            </DetailCard>
                         </div>
-                        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
-                            <div className="text-sm text-slate-500">Nominal</div>
-                            <div className="text-xl font-black">{rupiah(debt.amount)}</div>
-                        </div>
-                        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
-                            <div className="text-sm text-slate-500">Status</div>
-                            <Badge value={debt.status} label={humanDebtStatus(debt.status)} />
-                        </div>
-                    </div>
 
-                    {debt.verifier && (
-                        <p className="text-sm text-slate-500">
-                            Diverifikasi oleh {userDisplayName(debt.verifier)}
-                            {debt.verified_at ? ` · ${dateTime(debt.verified_at)}` : ''}
-                        </p>
-                    )}
+                        <DetailCard label="Barang">
+                            <p className="detail-metric-value whitespace-pre-wrap">{debt.item_name}</p>
+                        </DetailCard>
 
-                    <div>
-                        <h3 className="font-black">Informasi Utang</h3>
-                        <dl className="mt-2 space-y-3 rounded-2xl border border-slate-100 p-4 dark:border-slate-800">
-                            <div className="flex flex-wrap justify-between gap-2">
-                                <dt className="text-sm text-slate-500">Pihak</dt>
-                                <dd className="font-semibold">{debt.party_name}</dd>
-                            </div>
-                            <div className="flex flex-wrap justify-between gap-2">
-                                <dt className="text-sm text-slate-500">Barang</dt>
-                                <dd className="font-semibold">{debt.item_name}</dd>
-                            </div>
-                            <div className="flex flex-wrap justify-between gap-2">
-                                <dt className="text-sm text-slate-500">Tanggal</dt>
-                                <dd className="font-semibold">{dateTime(debt.occurred_at)}</dd>
-                            </div>
-                        </dl>
-                    </div>
+                        <DetailMedia url={debt.evidence_url} label="Bukti Utang" />
 
-                    <DetailMedia url={debt.evidence_url} label="Bukti Utang" />
-
-                    <div className="flex flex-wrap gap-2">
-                        <Link href={route('debts.edit', debt.id)} className="btn-muted">
-                            <Edit className="h-4 w-4" /> Edit
-                        </Link>
-                        {isAdmin && (
-                            <button
-                                type="button"
-                                onClick={() => requestDelete({ id: debt.id })}
-                                className="btn-muted text-rose-600"
-                            >
-                                <Trash2 className="h-4 w-4" /> Hapus
-                            </button>
+                        {isLocked && (
+                            <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                                Data utang ini sudah disetujui dan terkunci permanen.
+                            </p>
                         )}
                     </div>
                 </div>
 
                 <div className="space-y-6">
-                    {isAdmin && (
+                    {canVerify && (
                         <form
                             onSubmit={(e) => {
                                 e.preventDefault();

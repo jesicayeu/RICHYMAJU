@@ -39,7 +39,15 @@ export default function DebtForm({ debt }: { debt: any }) {
                     </label>
                 </div>
                 <label><span className="mb-2 block text-sm font-bold">Pihak</span><input className="input" value={data.party_name} onChange={(e) => setData('party_name', e.target.value)} /><InputError message={errors.party_name} /></label>
-                <label><span className="mb-2 block text-sm font-bold">Barang</span><input className="input" value={data.item_name} onChange={(e) => setData('item_name', e.target.value)} /><InputError message={errors.item_name} /></label>
+                <label>
+                    <span className="mb-2 block text-sm font-bold">Barang</span>
+                    <textarea
+                        className="input min-h-32 resize-y"
+                        value={data.item_name}
+                        onChange={(e) => setData('item_name', e.target.value)}
+                    />
+                    <InputError message={errors.item_name} />
+                </label>
                 <label><span className="mb-2 block text-sm font-bold">Nominal (Rp)</span><input className="input" type="number" min="1" value={data.amount} onChange={(e) => setData('amount', e.target.value)} /><InputError message={errors.amount} /></label>
                 <label><span className="mb-2 block text-sm font-bold">Status</span><select className="input" value={data.status} onChange={(e) => setData('status', e.target.value)}><option value="belum_selesai">Belum</option><option value="sudah_selesai">Selesai</option></select><InputError message={errors.status} /></label>
                 <label><span className="mb-2 block text-sm font-bold">Gambar</span><input className="input" type="file" accept="image/png,image/jpeg" onChange={(e) => setData('evidence', e.target.files?.[0])} /><InputError message={errors.evidence} /></label>

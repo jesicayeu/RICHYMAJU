@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\StockMovement;
 use App\Services\EncryptedFieldSearch;
 use App\Services\EncryptedQuery;
+use App\Services\GoogleSheetsSyncService;
 use App\Services\WhatsappNotificationService;
 use App\Support\Audit;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -100,6 +101,8 @@ class StockController extends Controller
             $movement,
         );
 
+        app(GoogleSheetsSyncService::class)->upsert($movement);
+
         return redirect()->route('stocks.show', $movement)->with('success', 'Stok tersimpan.');
     }
 
@@ -138,6 +141,8 @@ class StockController extends Controller
             $stock,
         );
 
+        app(GoogleSheetsSyncService::class)->upsert($stock);
+
         return redirect()->route('stocks.show', $stock)->with('success', 'Stok diperbarui.');
     }
 
@@ -156,6 +161,7 @@ class StockController extends Controller
             );
 
             $stock->delete();
+            app(GoogleSheetsSyncService::class)->syncModule('stocks');
         });
 
         return redirect()->route('stocks.index')->with('success', 'Data stok dihapus.');

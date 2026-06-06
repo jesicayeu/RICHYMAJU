@@ -28,12 +28,13 @@ export default function TransactionForm({ transaction }: any) {
         item_name: '',
         amount: transaction?.amount != null ? String(transaction.amount) : '',
         description: transaction?.description ?? '',
-        ui_status: transaction?.ui_status ?? 'belum_selesai',
+        ui_status: transaction?.ui_status ?? 'selesai',
         evidence: null,
         _method: isEdit ? 'put' : undefined,
     });
 
     const isExpense = data.type === 'pengeluaran';
+    const isIncome = data.type === 'pemasukan';
     const isDebtExpense = !isEdit && isExpense && data.expense_target === 'utang';
 
     const occurredAtDisplay = useMemo(
@@ -62,6 +63,10 @@ export default function TransactionForm({ transaction }: any) {
 
         const amountDigits = String(next.amount ?? '').replace(/\D/g, '');
         next.amount = amountDigits;
+
+        if (next.type === 'pemasukan') {
+            next.ui_status = 'selesai';
+        }
 
         return next;
     };
@@ -103,7 +108,14 @@ export default function TransactionForm({ transaction }: any) {
                         name="type"
                         className="input"
                         value={data.type}
-                        onChange={(e) => setData('type', e.target.value)}
+                        onChange={(e) => {
+                            const type = e.target.value;
+                            if (type === 'pemasukan') {
+                                setData({ type, ui_status: 'selesai' });
+                            } else {
+                                setData('type', type);
+                            }
+                        }}
                     >
                         <option value="pemasukan">Pemasukan</option>
                         <option value="pengeluaran">Pengeluaran</option>
@@ -132,14 +144,26 @@ export default function TransactionForm({ transaction }: any) {
                         <InputError message={errors.expense_target} />
                     </label>
                 )}
-                <label id="field-ui_status">
-                    <span className="mb-2 block text-sm font-bold">Status</span>
-                    <select name="ui_status" className="input" value={data.ui_status} onChange={(e) => setData('ui_status', e.target.value)}>
-                        <option value="belum_selesai">Belum</option>
-                        <option value="selesai">Selesai</option>
-                    </select>
-                    <InputError message={errors.ui_status} />
-                </label>
+                {isIncome ? (
+                    <label id="field-ui_status">
+                        <span className="mb-2 block text-sm font-bold">Status</span>
+                        <input className="input" disabled value="Selesai" />
+                    </label>
+                ) : (
+                    <label id="field-ui_status">
+                        <span className="mb-2 block text-sm font-bold">Status</span>
+                        <select
+                            name="ui_status"
+                            className="input"
+                            value={data.ui_status}
+                            onChange={(e) => setData('ui_status', e.target.value)}
+                        >
+                            <option value="belum_selesai">Belum</option>
+                            <option value="selesai">Selesai</option>
+                        </select>
+                        <InputError message={errors.ui_status} />
+                    </label>
+                )}
                 <label id="field-amount">
                     <span className="mb-2 block text-sm font-bold">Nominal (Rp)</span>
                     <input
@@ -168,9 +192,9 @@ export default function TransactionForm({ transaction }: any) {
                         </label>
                         <label id="field-item_name">
                             <span className="mb-2 block text-sm font-bold">Barang</span>
-                            <input
+                            <textarea
                                 name="item_name"
-                                className="input"
+                                className="input min-h-32 resize-y"
                                 value={data.item_name}
                                 onChange={(e) => setData('item_name', e.target.value)}
                             />

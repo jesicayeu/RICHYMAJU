@@ -8,17 +8,23 @@ use App\Services\DatabaseReencryptionService;
 use App\Services\StoragePathMigrationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Inertia\Response;
 use RuntimeException;
 
 class EncryptionController extends Controller
 {
-    public function index(): Response
+    public function index(): RedirectResponse
+    {
+        return redirect()->route('admin.settings.index', ['tab' => 'encryption']);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function settingsProps(): array
     {
         $setting = EncryptionSetting::current();
 
-        return Inertia::render('Admin/Encryption/Index', [
+        return [
             'textSettings' => [
                 'text_key' => $setting->text_key ?? '',
                 'key_type' => $setting->text_key_type ?? 'aes-256-gcm',
@@ -30,7 +36,7 @@ class EncryptionController extends Controller
                 'configured' => filled($setting->file_key),
             ],
             'keyTypes' => EncryptionSetting::KEY_TYPES,
-        ]);
+        ];
     }
 
     public function updateText(Request $request): RedirectResponse

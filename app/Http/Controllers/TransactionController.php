@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\HandlesAdminVerification;
 use App\Models\Debt;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\EncryptedFieldSearch;
 use App\Services\EncryptedQuery;
 use App\Services\GoogleDriveService;
+use App\Services\GoogleSheetsSyncService;
 use App\Services\WhatsappNotificationService;
 use App\Support\Audit;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -22,6 +24,8 @@ use Inertia\Response;
 
 class TransactionController extends Controller
 {
+    use HandlesAdminVerification;
+
     public function __construct(
         private GoogleDriveService $drive,
     ) {}
@@ -123,6 +127,8 @@ class TransactionController extends Controller
                 $debt,
             );
 
+            app(GoogleSheetsSyncService::class)->upsert($debt);
+
             return redirect()->route('debts.show', $debt)->with('success', 'Utang tersimpan.');
         }
 
@@ -148,6 +154,8 @@ class TransactionController extends Controller
             ['expense_target' => $request->input('expense_target', 'toko')],
         );
 
+        app(GoogleSheetsSyncService::class)->upsert($transaction);
+
         return redirect()->route('transactions.show', $transaction)->with('success', 'Transaksi tersimpan.');
     }
 
@@ -161,9 +169,12 @@ class TransactionController extends Controller
         ]);
     }
 
-    public function edit(Transaction $transaction, Request $request): Response
+    public function edit(Transaction $transaction, Request $request): Response|RedirectResponse
     {
         $this->authorizeView($transaction, $request);
+        if ($redirect = $this->blockedByVerificationLock($transaction, 'transactions.show')) {
+            return $redirect;
+        }
 
         return Inertia::render('Transactions/Form', ['transaction' => $transaction]);
     }
@@ -171,6 +182,9 @@ class TransactionController extends Controller
     public function update(Transaction $transaction, Request $request): RedirectResponse
     {
         $this->authorizeView($transaction, $request);
+        if ($redirect = $this->blockedByVerificationLock($transaction)) {
+            return $redirect;
+        }
         $data = $this->validated($request);
         $before = $transaction->toArray();
         if ($path = $this->storeEvidence($request, 'transactions')) {
@@ -186,17 +200,26 @@ class TransactionController extends Controller
             $transaction,
         );
 
+        app(GoogleSheetsSyncService::class)->upsert($transaction);
+
         return redirect()->route('transactions.show', $transaction)->with('success', 'Transaksi diperbarui.');
     }
 
     public function markPaid(Transaction $transaction, Request $request): RedirectResponse
     {
         $this->authorizeView($transaction, $request);
-        abort_unless($transaction->type === 'pengeluaran', 422, 'Hanya transaksi pengeluaran yang dapat dilunaskan.');
+        if ($redirect = $this->blockedByVerificationLock($transaction)) {
+            return $redirect;
+        }
+        if ($transaction->type !== 'pengeluaran') {
+            return back()->with('error', 'Hanya transaksi pengeluaran yang dapat dilunaskan.');
+        }
 
         $before = $transaction->toArray();
         $transaction->update(['type' => 'pemasukan', 'ui_status' => 'selesai']);
         Audit::record($transaction, 'lunas', $before, $transaction->fresh()->toArray(), 'Pengeluaran ditandai lunas dan berubah menjadi pemasukan.');
+
+        app(GoogleSheetsSyncService::class)->upsert($transaction->fresh());
 
         return back()->with('success', 'Transaksi berhasil ditandai lunas.');
     }
@@ -204,6 +227,9 @@ class TransactionController extends Controller
     public function destroy(Transaction $transaction, Request $request): RedirectResponse
     {
         abort_unless($request->user()->isAdmin(), 403);
+        if ($redirect = $this->blockedByVerificationLock($transaction)) {
+            return $redirect;
+        }
 
         DB::transaction(function () use ($transaction, $request) {
             $before = $transaction->toArray();
@@ -219,6 +245,7 @@ class TransactionController extends Controller
                 $this->drive->delete($transaction->evidence_path);
             }
             $transaction->delete();
+            app(GoogleSheetsSyncService::class)->syncModule('transactions');
         });
 
         return redirect()->route('transactions.index')->with('success', 'Transaksi dihapus.');
@@ -227,10 +254,29 @@ class TransactionController extends Controller
     public function verify(Transaction $transaction, Request $request): RedirectResponse
     {
         abort_unless($request->user()->isAdmin(), 403);
+        if ($redirect = $this->blockedByVerificationLock($transaction)) {
+            return $redirect;
+        }
+        if ($redirect = $this->blockedByPendingVerification($transaction)) {
+            return $redirect;
+        }
+
         $data = $request->validate([
             'verification_status' => ['required', 'in:disetujui,ditolak'],
             'verification_note' => ['nullable', 'string', 'max:1000'],
         ]);
+
+        if ($data['verification_status'] === 'ditolak') {
+            return $this->rejectAndDeleteRecord(
+                $transaction,
+                $request,
+                $data,
+                'transactions.index',
+                'Transaksi',
+                'transaksi_hapus',
+            );
+        }
+
         $before = $transaction->toArray();
         $transaction->update([
             ...$data,
@@ -239,7 +285,9 @@ class TransactionController extends Controller
         ]);
         Audit::record($transaction, 'verifikasi', $before, $transaction->fresh()->toArray(), $data['verification_note'] ?? null);
 
-        return back()->with('success', 'Verifikasi transaksi tersimpan.');
+        app(GoogleSheetsSyncService::class)->upsert($transaction->fresh());
+
+        return back()->with('success', 'Transaksi disetujui dan terkunci permanen.');
     }
 
     public function export(Request $request)
@@ -358,7 +406,7 @@ class TransactionController extends Controller
             $rules['description'] = ['required', 'string', 'max:2000'];
         }
 
-        return $request->validate($rules, [
+        $data = $request->validate($rules, [
             'type.required' => 'Jenis transaksi wajib dipilih.',
             'amount.required' => 'Nominal wajib diisi.',
             'amount.integer' => 'Nominal harus berupa angka bulat.',
@@ -371,6 +419,12 @@ class TransactionController extends Controller
             'evidence.image' => 'Gambar harus berupa file gambar.',
             'evidence.max' => 'Ukuran gambar maksimal 5 MB.',
         ]);
+
+        if ($data['type'] === 'pemasukan') {
+            $data['ui_status'] = 'selesai';
+        }
+
+        return $data;
     }
 
     private function storeEvidence(Request $request, string $folder): ?string

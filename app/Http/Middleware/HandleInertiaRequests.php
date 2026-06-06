@@ -39,6 +39,7 @@ class HandleInertiaRequests extends Middleware
                 'error' => fn () => $request->session()->get('error'),
                 'encryption_tab' => fn () => $request->session()->get('encryption_tab'),
                 'whatsapp_tab' => fn () => $request->session()->get('whatsapp_tab'),
+                'settings_tab' => fn () => $request->session()->get('settings_tab'),
             ],
             'unreadNotifications' => fn () => $request->user()?->unreadNotifications()->count() ?? 0,
         ];

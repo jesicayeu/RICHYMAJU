@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { LucideIcon } from 'lucide-react';
 
 export default function StatCard({
@@ -22,7 +21,7 @@ export default function StatCard({
     };
 
     return (
-        <motion.div whileHover={{ y: -3 }} className="glass-card min-w-0 overflow-hidden p-4 sm:p-5">
+        <div className="glass-card min-w-0 overflow-hidden p-4 sm:p-5">
             <div className="flex items-start justify-between gap-2">
                 <p className="min-w-0 flex-1 pr-1 text-xs font-semibold leading-snug text-slate-500 dark:text-slate-400 sm:text-sm">
                     {title}
@@ -37,6 +36,6 @@ export default function StatCard({
                 {value}
             </p>
             {subtitle && <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">{subtitle}</p>}
-        </motion.div>
+        </div>
     );
 }

@@ -14,8 +14,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-use Inertia\Inertia;
-use Inertia\Response;
 use RuntimeException;
 
 class WhatsAppController extends Controller
@@ -24,7 +22,15 @@ class WhatsAppController extends Controller
         private WahaService $waha,
     ) {}
 
-    public function index(): Response
+    public function index(): RedirectResponse
+    {
+        return redirect()->route('admin.settings.index', ['tab' => 'whatsapp']);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function settingsProps(): array
     {
         $settings = WhatsappSetting::current();
         $config = WhatsappConfig::current();
@@ -92,7 +98,7 @@ class WhatsAppController extends Controller
             }
         }
 
-        return Inertia::render('Admin/WhatsApp/Index', [
+        return [
             'settings' => [
                 'host_url' => $settings->host_url ?? config('waha.base_url'),
                 'api_key' => $settings->api_key ?? '',
@@ -117,7 +123,7 @@ class WhatsAppController extends Controller
                     'chat_id' => $contact['chat_id'],
                 ])
                 ->values(),
-        ]);
+        ];
     }
 
     public function sendTestMessage(Request $request): JsonResponse

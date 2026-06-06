@@ -218,6 +218,11 @@ class GoogleDriveService
 
     private function authorizedClient(): Client
     {
+        return $this->resolveAuthorizedClient();
+    }
+
+    public function resolveAuthorizedClient(): Client
+    {
         $setting = GoogleDriveSetting::current();
 
         if (! filled($setting->refresh_token)) {
@@ -269,6 +274,7 @@ class GoogleDriveService
         $client->setPrompt('consent');
         $client->setScopes([
             Drive::DRIVE_FILE,
+            'https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/userinfo.email',
         ]);
 

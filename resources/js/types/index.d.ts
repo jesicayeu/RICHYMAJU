@@ -36,6 +36,7 @@ export type PageProps<
         error?: string;
         encryption_tab?: 'text' | 'file';
         whatsapp_tab?: 'config' | 'pesan' | 'kontak' | 'tes';
+        settings_tab?: 'whatsapp' | 'google-drive' | 'encryption';
     };
     unreadNotifications?: number;
 };

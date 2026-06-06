@@ -8,7 +8,6 @@ use App\Services\GoogleDriveService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
-use Inertia\Response;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
@@ -18,11 +17,19 @@ class GoogleDriveController extends Controller
         private GoogleDriveService $drive,
     ) {}
 
-    public function index(): Response
+    public function index(): RedirectResponse
+    {
+        return redirect()->route('admin.settings.index', ['tab' => 'google-drive']);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function settingsProps(): array
     {
         $setting = GoogleDriveSetting::current();
 
-        return Inertia::render('Admin/GoogleDrive/Index', [
+        return [
             'settings' => [
                 'client_id' => $setting->client_id ?? '',
                 'client_secret' => $setting->client_secret ?? '',
@@ -38,7 +45,12 @@ class GoogleDriveController extends Controller
                 'chat' => $setting->folder_chat ?? '',
                 'profile' => $setting->folder_profile ?? '',
             ],
-        ]);
+            'sheets' => [
+                'transactions' => $setting->sheet_transactions ?? '',
+                'stocks' => $setting->sheet_stocks ?? '',
+                'debts' => $setting->sheet_debts ?? '',
+            ],
+        ];
     }
 
     public function connect(Request $request): RedirectResponse|SymfonyResponse
@@ -89,25 +101,42 @@ class GoogleDriveController extends Controller
         return back()->with('success', 'Folder Google Drive tersimpan.');
     }
 
+    public function updateSheets(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'sheet_transactions' => ['required', 'string', 'max:500'],
+            'sheet_stocks' => ['required', 'string', 'max:500'],
+            'sheet_debts' => ['required', 'string', 'max:500'],
+        ]);
+
+        GoogleDriveSetting::current()->update([
+            'sheet_transactions' => $data['sheet_transactions'],
+            'sheet_stocks' => $data['sheet_stocks'],
+            'sheet_debts' => $data['sheet_debts'],
+        ]);
+
+        return back()->with('success', 'Sheet Google Sheets tersimpan.');
+    }
+
     public function callback(Request $request): RedirectResponse
     {
         if ($request->filled('error')) {
-            return redirect()->route('admin.google-drive.index')->with('error', 'Autorisasi Google Drive dibatalkan.');
+            return redirect()->route('admin.settings.index', ['tab' => 'google-drive'])->with('error', 'Autorisasi Google Drive dibatalkan.');
         }
 
         if (! $request->filled('code')) {
-            return redirect()->route('admin.google-drive.index')->with('error', 'Kode autorisasi Google tidak ditemukan.');
+            return redirect()->route('admin.settings.index', ['tab' => 'google-drive'])->with('error', 'Kode autorisasi Google tidak ditemukan.');
         }
 
         try {
             $this->drive->handleCallback((string) $request->query('code'));
         } catch (RuntimeException $e) {
-            return redirect()->route('admin.google-drive.index')->with('error', $e->getMessage());
+            return redirect()->route('admin.settings.index', ['tab' => 'google-drive'])->with('error', $e->getMessage());
         }
 
         $email = GoogleDriveSetting::current()->connected_email;
 
-        return redirect()->route('admin.google-drive.index')->with(
+        return redirect()->route('admin.settings.index', ['tab' => 'google-drive'])->with(
             'success',
             $email ? "Google Drive terhubung ke {$email}." : 'Google Drive berhasil terhubung.'
         );

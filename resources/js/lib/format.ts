@@ -24,6 +24,9 @@ const transactionUiStatusLabels: Record<string, string> = {
 export const humanTransactionUiStatus = (value?: string) =>
     transactionUiStatusLabels[value ?? ''] ?? humanStatus(value);
 
+export const isPendingVerification = (status?: string | null) =>
+    status == null || status === '' || status === 'menunggu';
+
 /** Nama terdaftar saat pembuatan akun (field `name`), bukan nama tampilan/alias. */
 export const registeredUserName = (user?: { name?: string | null }) => {
     const name = user?.name?.trim();

@@ -1,7 +1,6 @@
 import Badge from '@/Components/Badge';
 import StatCard from '@/Components/StatCard';
 import AppLayout from '@/Layouts/AppLayout';
-import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import { dateTimeCompact, humanTransactionUiStatus, registeredUserName, rupiah, rupiahShort } from '@/lib/format';
 import { Link, router } from '@inertiajs/react';
 import {
@@ -11,7 +10,6 @@ import {
     Receipt,
     Search,
     TrendingDown,
-    Trash2,
     TrendingUp,
     Users,
     Wallet,
@@ -188,13 +186,11 @@ function TransactionsTable({
     filter,
     isAdmin,
     onSort,
-    onRequestDelete,
 }: {
     transactions: any;
     filter: Record<string, string | undefined>;
     isAdmin: boolean;
     onSort: (field: string) => void;
-    onRequestDelete: (id: number) => void;
 }) {
     return (
         <div className="data-table-wrap">
@@ -256,17 +252,6 @@ function TransactionsTable({
                                             <Eye className="h-3.5 w-3.5 shrink-0" />
                                             <span className="btn-label">Detail</span>
                                         </Link>
-                                        {isAdmin && (
-                                            <button
-                                                type="button"
-                                                onClick={() => onRequestDelete(trx.id)}
-                                                className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs text-rose-600"
-                                                title="Hapus"
-                                            >
-                                                <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                                                <span className="btn-label">Hapus</span>
-                                            </button>
-                                        )}
                                     </div>
                                 </td>
                             </tr>
@@ -331,12 +316,6 @@ export default function TransactionsIndex({
         setFilter({ ...filter, sort: field, direction });
         navigate({ sort: field, direction });
     };
-
-    const { requestDelete, deleteModal } = useConfirmDelete({
-        buildRoute: (id) => route('transactions.destroy', id),
-        title: 'Hapus Transaksi',
-        message: () => 'Yakin hapus transaksi ini? Tindakan tidak dapat dibatalkan.',
-    });
 
     return (
         <AppLayout title="Transaksi">
@@ -455,7 +434,6 @@ export default function TransactionsIndex({
                     filter={filter}
                     isAdmin={isAdmin}
                     onSort={toggleSort}
-                    onRequestDelete={(id) => requestDelete({ id })}
                 />
                 <PaginationFooter
                     transactions={transactions}
@@ -466,7 +444,6 @@ export default function TransactionsIndex({
                     }}
                 />
             </div>
-            {deleteModal}
         </AppLayout>
     );
 }

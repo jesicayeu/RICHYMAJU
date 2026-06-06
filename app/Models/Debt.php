@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasAdminVerification;
 use App\Casts\EncryptedInteger;
 use App\Casts\EncryptedString;
 use App\Casts\StoragePath;
@@ -29,6 +30,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 ])]
 class Debt extends Model
 {
+    use HasAdminVerification;
+
     protected $appends = ['evidence_url'];
 
     protected function casts(): array

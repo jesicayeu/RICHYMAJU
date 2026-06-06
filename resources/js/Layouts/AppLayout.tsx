@@ -12,18 +12,17 @@ import {
     MessageSquare,
     Moon,
     Package,
-    Cloud,
-    LockKeyhole,
     Receipt,
+    Settings,
     Sun,
     UserCircle,
-    Phone,
     Users,
     Wallet,
     X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageProps } from '@/types';
+import { brand } from '@/lib/brand';
 
 type NavItem = {
     href: string;
@@ -40,9 +39,7 @@ const navItems: NavItem[] = [
     { href: route('chat.index'), label: 'Chat', icon: MessageSquare },
     { href: route('profile.edit'), label: 'Profil', icon: UserCircle },
     { href: route('admin.users.index'), label: 'Kelola Akun', icon: Users, adminOnly: true },
-    { href: route('admin.whatsapp.index'), label: 'WhatsApp', icon: Phone, adminOnly: true },
-    { href: route('admin.google-drive.index'), label: 'Google Drive', icon: Cloud, adminOnly: true },
-    { href: route('admin.encryption.index'), label: 'Enkrip', icon: LockKeyhole, adminOnly: true },
+    { href: route('admin.settings.index'), label: 'Pengaturan', icon: Settings, adminOnly: true },
 ];
 
 function NavLinks({
@@ -134,9 +131,7 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
 
     const navLinkClass = (active: boolean) =>
         `group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-            active
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-300 dark:hover:bg-slate-800'
+            active ? brand.navActive : brand.navIdle
         }`;
 
     const closeMobileMenu = () => setMobileMenuOpen(false);
@@ -148,7 +143,7 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
             {!isMobile && (
                 <aside className="surface-panel fixed inset-y-0 left-0 z-30 flex w-72 flex-col border-r">
                     <div className="flex h-20 shrink-0 items-center gap-3 px-6">
-                        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-indigo-600 text-lg font-black text-white shadow-md">
+                        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-logo text-lg font-black text-white shadow-brand">
                             RM
                         </div>
                         <div>
@@ -180,7 +175,7 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                 >
                     <div className="flex h-20 items-center justify-between gap-3 px-6">
                         <div className="flex items-center gap-3">
-                            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-indigo-600 text-lg font-black text-white shadow-md">
+                            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-logo text-lg font-black text-white shadow-brand">
                                 RM
                             </div>
                             <div>
@@ -219,14 +214,14 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                         <div className="flex min-w-0 items-center gap-3">
                             {isMobile && (
                                 <div
-                                    className="mobile-menu-btn grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-sm font-black text-white shadow-md"
+                                    className="mobile-menu-btn grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-brand-logo text-sm font-black text-white shadow-brand"
                                     aria-label="Richy Maju"
                                 >
                                     RM
                                 </div>
                             )}
                             <div className="min-w-0">
-                                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-500">
+                                <p className={`text-xs font-semibold uppercase tracking-[0.3em] ${brand.label}`}>
                                     {auth.user.role === 'admin' ? 'Pemilik Toko' : 'Kasir'}
                                 </p>
                                 <h1 className="truncate text-2xl font-black tracking-tight">{title}</h1>
@@ -247,7 +242,7 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                                         className="h-9 w-9 shrink-0 rounded-xl object-cover shadow-md shadow-indigo-500/20"
                                     />
                                 ) : (
-                                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-indigo-600 text-sm font-black text-white shadow-md">
+                                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-logo text-sm font-black text-white shadow-brand">
                                         {(auth.user.display_name || auth.user.name || auth.user.username || '?')
                                             .charAt(0)
                                             .toUpperCase()}
@@ -303,8 +298,8 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                                     onClick={closeMobileMenu}
                                     className={`flex flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold transition ${
                                         active
-                                            ? 'bg-indigo-600 text-white'
-                                            : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+                                            ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25 dark:from-indigo-600 dark:to-indigo-600 dark:shadow-none'
+                                            : brand.navIdle
                                     }`}
                                 >
                                     <Icon className="h-5 w-5 shrink-0" />
@@ -317,8 +312,8 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                             onClick={() => setMobileMenuOpen(true)}
                             className={`flex flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold transition ${
                                 mobileMenuOpen
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+                                    ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white dark:from-indigo-600 dark:to-indigo-600'
+                                    : brand.navIdle
                             }`}
                             aria-label="Menu lainnya"
                         >

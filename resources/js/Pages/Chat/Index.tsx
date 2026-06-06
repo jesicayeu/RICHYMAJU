@@ -232,8 +232,8 @@ function sortConversations(items: ConversationItem[]): ConversationItem[] {
     });
 }
 
-const DELETE_ACTION_WIDTH = 72;
-const SWIPE_START_THRESHOLD_PX = 12;
+const DELETE_ACTION_WIDTH = 64;
+const SWIPE_START_THRESHOLD_PX = 10;
 
 function useChatMobileLayout() {
     const [isNarrow, setIsNarrow] = useState(
@@ -267,11 +267,26 @@ function ConversationListRow({
     deleting?: boolean;
 }) {
     const [reveal, setReveal] = useState(open ? DELETE_ACTION_WIDTH : 0);
+    const [isDragging, setIsDragging] = useState(false);
+    const rowRef = useRef<HTMLDivElement>(null);
     const dragRef = useRef({ startX: 0, startY: 0, startReveal: 0, dragging: false });
 
     useEffect(() => {
         setReveal(open ? DELETE_ACTION_WIDTH : 0);
     }, [open]);
+
+    useEffect(() => {
+        const row = rowRef.current;
+        if (!row) return;
+
+        const onTouchMove = (e: TouchEvent) => {
+            if (!dragRef.current.dragging) return;
+            e.preventDefault();
+        };
+
+        row.addEventListener('touchmove', onTouchMove, { passive: false });
+        return () => row.removeEventListener('touchmove', onTouchMove);
+    }, []);
 
     const clampReveal = (value: number) => Math.max(0, Math.min(DELETE_ACTION_WIDTH, value));
 
@@ -288,10 +303,12 @@ function ConversationListRow({
         const deltaY = Math.abs(e.clientY - drag.startY);
 
         if (!drag.dragging) {
-            if (Math.abs(deltaX) < SWIPE_START_THRESHOLD_PX || Math.abs(deltaX) < deltaY) {
+            if (Math.abs(deltaX) < SWIPE_START_THRESHOLD_PX || Math.abs(deltaX) <= deltaY) {
                 return;
             }
             drag.dragging = true;
+            setIsDragging(true);
+            onOpenChange(false);
             e.currentTarget.setPointerCapture(e.pointerId);
         }
 
@@ -305,6 +322,7 @@ function ConversationListRow({
     const finishPointer = (e: React.PointerEvent<HTMLDivElement>) => {
         const wasDragging = dragRef.current.dragging;
         dragRef.current.dragging = false;
+        setIsDragging(false);
 
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
@@ -322,17 +340,21 @@ function ConversationListRow({
         onSelect();
     };
 
+    const showDelete = reveal > 0;
+
     return (
-        <div className="overflow-hidden rounded-2xl">
+        <div ref={rowRef} className="relative overflow-hidden rounded-2xl">
             <div
-                className="flex touch-pan-y transition-transform duration-200 ease-out will-change-transform"
-                style={{ transform: `translateX(-${reveal}px)` }}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={finishPointer}
-                onPointerCancel={finishPointer}
+                className="absolute inset-y-0 right-0 flex items-center justify-center bg-rose-600"
+                style={{
+                    width: DELETE_ACTION_WIDTH,
+                    clipPath: showDelete
+                        ? `inset(0 ${Math.max(0, DELETE_ACTION_WIDTH - reveal)}px 0 0)`
+                        : 'inset(0 100% 0 0)',
+                    pointerEvents: reveal >= DELETE_ACTION_WIDTH / 2 ? 'auto' : 'none',
+                }}
+                aria-hidden={!showDelete}
             >
-                <div className="w-full min-w-full shrink-0">{children}</div>
                 <button
                     type="button"
                     data-delete-action
@@ -342,13 +364,25 @@ function ConversationListRow({
                         onDelete();
                     }}
                     disabled={deleting}
-                    className="flex w-[72px] shrink-0 flex-col items-center justify-center gap-0.5 bg-rose-600 text-[10px] font-bold leading-tight text-white hover:bg-rose-700 active:scale-95 disabled:opacity-60"
+                    className="flex h-full w-full items-center justify-center text-white transition hover:bg-rose-700 active:scale-95 disabled:opacity-60"
                     aria-label="Hapus chat"
                     title="Hapus chat"
+                    tabIndex={showDelete ? 0 : -1}
                 >
                     <Trash2 className="h-5 w-5 shrink-0" />
-                    <span>Hapus</span>
                 </button>
+            </div>
+            <div
+                className={`relative z-10 w-full touch-pan-y select-none will-change-transform ${
+                    isDragging ? '' : 'transition-transform duration-200 ease-out'
+                }`}
+                style={{ transform: `translateX(-${reveal}px)` }}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={finishPointer}
+                onPointerCancel={finishPointer}
+            >
+                {children}
             </div>
         </div>
     );
@@ -454,6 +488,10 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
                 matchesQuery(conversationLastPreview(item.lastMessage), sidebarSearch),
         );
     }, [conversationItems, sidebarSearch]);
+
+    useEffect(() => {
+        setOpenSwipeId(null);
+    }, [sidebarQuery]);
 
     const handleIncomingMessageRef = useRef<(conversationId: number, message: any) => void>(() => {});
 

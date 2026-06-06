@@ -1,6 +1,5 @@
 import InputError from '@/Components/InputError';
 import { Head, Link, useForm } from '@inertiajs/react';
-import { motion } from 'framer-motion';
 import { Eye, EyeOff, LockKeyhole, Moon, Sun, User } from 'lucide-react';
 import { FormEventHandler, useState } from 'react';
 import { useTheme } from '@/hooks/useTheme';
@@ -33,22 +32,14 @@ export default function Login({ status }: { status?: string }) {
                 {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
 
-            <motion.form
+            <form
                 onSubmit={submit}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
                 className="glass-card relative z-10 w-full max-w-sm p-5 sm:p-6"
             >
                 <div className="mb-5 text-center">
-                    <motion.div
-                        initial={{ scale: 0.85, rotate: -6 }}
-                        animate={{ scale: 1, rotate: 0 }}
-                        transition={{ type: 'spring', stiffness: 220, damping: 14 }}
-                        className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-indigo-600 text-base font-black text-white shadow-md"
-                    >
+                    <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-brand-logo text-base font-black text-white shadow-brand">
                         RM
-                    </motion.div>
+                    </div>
                     <p className="text-[10px] font-semibold tracking-[0.3em] text-indigo-600 dark:text-indigo-400">Aplikasi Akuntansi</p>
                     <h1 className="mt-0.5 text-xl font-black tracking-tight">Richy Maju</h1>
                 </div>
@@ -99,12 +90,7 @@ export default function Login({ status }: { status?: string }) {
                     <InputError message={errors.password} className="mt-1.5" />
                 </label>
 
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.15 }}
-                    className="mb-4 flex items-center justify-between gap-2 text-xs"
-                >
+                <div className="mb-4 flex items-center justify-between gap-2 text-xs">
                     <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
                         <input
                             type="checkbox"
@@ -120,11 +106,10 @@ export default function Login({ status }: { status?: string }) {
                     >
                         Lupa password?
                     </Link>
-                </motion.div>
+                </div>
 
-                <motion.button
+                <button
                     type="submit"
-                    whileTap={{ scale: 0.97 }}
                     disabled={processing}
                     className="btn-primary w-full !py-2.5 text-sm"
                 >
@@ -139,8 +124,8 @@ export default function Login({ status }: { status?: string }) {
                             Login
                         </>
                     )}
-                </motion.button>
-            </motion.form>
+                </button>
+            </form>
         </div>
     );
 }

@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\HandlesAdminVerification;
 use App\Models\Debt;
 use App\Models\User;
 use App\Services\EncryptedFieldSearch;
 use App\Services\EncryptedQuery;
 use App\Services\GoogleDriveService;
+use App\Services\GoogleSheetsSyncService;
 use App\Services\WhatsappNotificationService;
 use App\Support\Audit;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -20,6 +22,8 @@ use Inertia\Response;
 
 class DebtController extends Controller
 {
+    use HandlesAdminVerification;
+
     public function __construct(
         private GoogleDriveService $drive,
     ) {}
@@ -101,9 +105,12 @@ class DebtController extends Controller
         ]);
     }
 
-    public function edit(Debt $debt, Request $request): Response
+    public function edit(Debt $debt, Request $request): Response|RedirectResponse
     {
         $this->authorizeView($debt, $request);
+        if ($redirect = $this->blockedByVerificationLock($debt, 'debts.show')) {
+            return $redirect;
+        }
 
         return Inertia::render('Debts/Form', ['debt' => $debt]);
     }
@@ -111,6 +118,9 @@ class DebtController extends Controller
     public function update(Debt $debt, Request $request): RedirectResponse
     {
         $this->authorizeView($debt, $request);
+        if ($redirect = $this->blockedByVerificationLock($debt)) {
+            return $redirect;
+        }
         $data = $this->validated($request);
         $before = $debt->toArray();
         if ($path = $this->storeEvidence($request)) {
@@ -126,12 +136,17 @@ class DebtController extends Controller
             $debt,
         );
 
+        app(GoogleSheetsSyncService::class)->upsert($debt);
+
         return redirect()->route('debts.show', $debt)->with('success', 'Utang diperbarui.');
     }
 
     public function destroy(Debt $debt, Request $request): RedirectResponse
     {
         abort_unless($request->user()->isAdmin(), 403);
+        if ($redirect = $this->blockedByVerificationLock($debt)) {
+            return $redirect;
+        }
 
         DB::transaction(function () use ($debt, $request) {
             $before = $debt->toArray();
@@ -147,6 +162,7 @@ class DebtController extends Controller
                 $this->drive->delete($debt->evidence_path);
             }
             $debt->delete();
+            app(GoogleSheetsSyncService::class)->syncModule('debts');
         });
 
         return redirect()->route('debts.index')->with('success', 'Utang dihapus.');
@@ -155,10 +171,29 @@ class DebtController extends Controller
     public function verify(Debt $debt, Request $request): RedirectResponse
     {
         abort_unless($request->user()->isAdmin(), 403);
+        if ($redirect = $this->blockedByVerificationLock($debt)) {
+            return $redirect;
+        }
+        if ($redirect = $this->blockedByPendingVerification($debt)) {
+            return $redirect;
+        }
+
         $data = $request->validate([
             'verification_status' => ['required', 'in:disetujui,ditolak'],
             'verification_note' => ['nullable', 'string', 'max:1000'],
         ]);
+
+        if ($data['verification_status'] === 'ditolak') {
+            return $this->rejectAndDeleteRecord(
+                $debt,
+                $request,
+                $data,
+                'debts.index',
+                'Utang',
+                'utang_hapus',
+            );
+        }
+
         $before = $debt->toArray();
         $debt->update([
             ...$data,
@@ -167,7 +202,9 @@ class DebtController extends Controller
         ]);
         Audit::record($debt, 'verifikasi', $before, $debt->fresh()->toArray(), $data['verification_note'] ?? null);
 
-        return back()->with('success', 'Verifikasi utang tersimpan.');
+        app(GoogleSheetsSyncService::class)->upsert($debt->fresh());
+
+        return back()->with('success', 'Utang disetujui dan terkunci permanen.');
     }
 
     public function export(Request $request)

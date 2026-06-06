@@ -1,7 +1,6 @@
 import Badge from '@/Components/Badge';
 import StatCard from '@/Components/StatCard';
 import AppLayout from '@/Layouts/AppLayout';
-import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import {
     dateTimeCompact,
     formatQuantity,
@@ -12,13 +11,11 @@ import { Link, router } from '@inertiajs/react';
 import {
     ArrowDownToLine,
     ArrowUpFromLine,
-    Edit,
     Eye,
     FileDown,
     Package,
     Plus,
     Search,
-    Trash2,
 } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
@@ -195,14 +192,6 @@ function StocksTable({ movements }: { movements: any }) {
                                             <Eye className="h-3.5 w-3.5 shrink-0" />
                                             <span className="btn-label">Detail</span>
                                         </Link>
-                                        <Link
-                                            href={route('stocks.edit', movement.id)}
-                                            className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs"
-                                            title="Edit"
-                                        >
-                                            <Edit className="h-3.5 w-3.5 shrink-0" />
-                                            <span className="btn-label">Edit</span>
-                                        </Link>
                                     </div>
                                 </td>
                             </tr>
@@ -323,12 +312,6 @@ function AdminStocksIndex({
         setFilter({ ...filter, sort: 'occurred_at', direction });
         navigate({ sort: 'occurred_at', direction });
     };
-
-    const { requestDelete, deleteModal } = useConfirmDelete({
-        buildRoute: (id) => route('stocks.destroy', id),
-        title: 'Hapus Stok',
-        message: () => 'Yakin hapus data stok ini? Tindakan tidak dapat dibatalkan.',
-    });
 
     return (
         <AppLayout title="Stok Barang">
@@ -499,22 +482,6 @@ function AdminStocksIndex({
                                                     <Eye className="h-3.5 w-3.5 shrink-0" />
                                                     <span className="btn-label">Detail</span>
                                                 </Link>
-                                                <Link
-                                                    href={route('stocks.edit', movement.id)}
-                                                    className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs"
-                                                    title="Edit"
-                                                >
-                                                    <Edit className="h-3.5 w-3.5 shrink-0" />
-                                                    <span className="btn-label">Edit</span>
-                                                </Link>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => requestDelete({ id: movement.id })}
-                                                    className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs text-rose-600"
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                                                    <span className="btn-label">Hapus</span>
-                                                </button>
                                             </div>
                                         </td>
                                     </tr>
@@ -533,7 +500,6 @@ function AdminStocksIndex({
                     }}
                 />
             </div>
-            {deleteModal}
         </AppLayout>
     );
 }
