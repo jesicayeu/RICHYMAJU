@@ -82,7 +82,7 @@ class GoogleDriveService
         $filename ??= $this->buildFilename($file);
         $drive = new Drive($this->authorizedClient());
 
-        $rawContents = file_get_contents($file->getRealPath());
+        $rawContents = $file->getContent();
         $contents = app(EncryptionService::class)->encryptBytes($rawContents);
         $mimeType = 'application/octet-stream';
 

@@ -1,13 +1,13 @@
+import ImageInput from '@/Components/ImageInput';
 import InputError from '@/Components/InputError';
 import { Transition } from '@headlessui/react';
 import { useForm, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
-import { Camera, Mail, Phone, Save, Trash2, User as UserIcon } from 'lucide-react';
-import { ChangeEvent, FormEventHandler, useMemo, useRef, useState } from 'react';
+import { Mail, Phone, Save, Trash2, User as UserIcon } from 'lucide-react';
+import { FormEventHandler, useMemo, useState } from 'react';
 
 export default function UpdateProfileInformation({ className = '' }: { className?: string }) {
     const user = usePage().props.auth.user;
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const { data, setData, post, errors, processing, recentlySuccessful, reset } = useForm({
         _method: 'patch' as 'patch',
@@ -28,9 +28,7 @@ export default function UpdateProfileInformation({ className = '' }: { className
 
     const initial = (data.name || user.username || '?').charAt(0).toUpperCase();
 
-    const onPickFile = (e: ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0] ?? null;
-        if (!file) return;
+    const onAvatarChange = (file: File) => {
         setData((current) => ({ ...current, avatar: file, remove_avatar: false }));
         const reader = new FileReader();
         reader.onload = () => setPreview(typeof reader.result === 'string' ? reader.result : null);
@@ -40,7 +38,6 @@ export default function UpdateProfileInformation({ className = '' }: { className
     const removeAvatar = () => {
         setData((current) => ({ ...current, avatar: null, remove_avatar: true }));
         setPreview(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const submit: FormEventHandler = (e) => {
@@ -52,7 +49,6 @@ export default function UpdateProfileInformation({ className = '' }: { className
                 reset('avatar');
                 setData('remove_avatar', false);
                 setPreview(null);
-                if (fileInputRef.current) fileInputRef.current.value = '';
             },
         });
     };
@@ -79,34 +75,26 @@ export default function UpdateProfileInformation({ className = '' }: { className
 
                     <div className="flex-1 text-center sm:text-left">
                         <div className="text-base font-black">Foto Profil</div>
-                        <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
-                            <button
-                                type="button"
-                                onClick={() => fileInputRef.current?.click()}
-                                className="btn-primary !py-2"
-                            >
-                                <Camera className="h-4 w-4" />
-                                {currentAvatarUrl ? 'Ganti Foto' : 'Pilih Foto'}
-                            </button>
+                        <div className="mt-3 space-y-2">
+                            <ImageInput
+                                onChange={onAvatarChange}
+                                error={errors.avatar}
+                                facingMode="user"
+                                pickLabel={currentAvatarUrl ? 'Ganti dari Galeri' : 'Pilih dari Galeri'}
+                            />
                             {currentAvatarUrl && (
-                                <button
-                                    type="button"
-                                    onClick={removeAvatar}
-                                    className="btn-muted !py-2 text-rose-600 dark:text-rose-400"
-                                >
-                                    <Trash2 className="h-4 w-4" />
-                                    Hapus
-                                </button>
+                                <div className="flex justify-center sm:justify-start">
+                                    <button
+                                        type="button"
+                                        onClick={removeAvatar}
+                                        className="btn-muted !py-2 text-rose-600 dark:text-rose-400"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                        Hapus
+                                    </button>
+                                </div>
                             )}
                         </div>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/jpeg,image/jpg,image/png,image/webp"
-                            className="hidden"
-                            onChange={onPickFile}
-                        />
-                        <InputError message={errors.avatar} className="mt-2" />
                     </div>
                 </div>
 

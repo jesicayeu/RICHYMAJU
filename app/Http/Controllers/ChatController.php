@@ -92,10 +92,10 @@ class ChatController extends Controller
     {
         $user = $request->user();
         $data = $request->validate([
-            'conversation_id' => ['nullable', 'exists:conversations,id'],
-            'recipient_id' => ['nullable', 'exists:users,id'],
+            'conversation_id' => ['nullable', 'integer', 'exists:conversations,id'],
+            'recipient_id' => ['nullable', 'integer', 'exists:users,id'],
             'body' => ['nullable', 'string', 'max:1000'],
-            'attachment' => ['nullable', 'file', 'max:10240', 'mimes:jpeg,jpg,png,gif,webp,pdf'],
+            'attachment' => ['nullable', 'file', 'max:10240', 'mimetypes:image/jpeg,image/png,image/gif,image/webp,application/pdf'],
             'context_type' => ['nullable', 'in:transaction,debt'],
             'context_id' => ['nullable', 'integer'],
         ]);
@@ -124,19 +124,48 @@ class ChatController extends Controller
         $attachmentPath = null;
         $originalName = null;
         if ($attachmentFile) {
-            $originalName = $attachmentFile->getClientOriginalName();
-            $attachmentPath = $this->drive->upload($attachmentFile, 'chat');
+            $originalName = $attachmentFile->getClientOriginalName() ?: 'lampiran.jpg';
+
+            try {
+                $attachmentPath = $this->drive->upload($attachmentFile, 'chat');
+            } catch (Throwable $e) {
+                Log::error('Gagal mengunggah lampiran chat.', [
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                throw ValidationException::withMessages([
+                    'attachment' => 'Gagal mengunggah lampiran. Pastikan Google Drive sudah terhubung.',
+                ]);
+            }
         }
 
-        $message = Message::create([
-            'conversation_id' => $conversation->id,
-            'sender_id' => $user->id,
-            'body' => $bodyText,
-            'attachment_path' => $attachmentPath,
-            'attachment_original_name' => $originalName,
-            'context_type' => $data['context_type'] ?? null,
-            'context_id' => $data['context_id'] ?? null,
-        ]);
+        try {
+            $message = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_id' => $user->id,
+                'body' => $bodyText,
+                'attachment_path' => $attachmentPath,
+                'attachment_original_name' => $originalName,
+                'context_type' => $data['context_type'] ?? null,
+                'context_id' => $data['context_id'] ?? null,
+            ]);
+        } catch (Throwable $e) {
+            if ($attachmentPath) {
+                $this->drive->delete($attachmentPath);
+            }
+
+            Log::error('Gagal menyimpan pesan chat.', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'attachment' => 'Gagal menyimpan pesan. Coba lagi.',
+            ]);
+        }
         $conversation->update(['last_message_at' => now()]);
         $message->load('sender');
 
@@ -150,17 +179,24 @@ class ChatController extends Controller
             ]);
         }
 
-        $recipient = $conversation->otherParticipant($user);
-        app(WhatsappNotificationService::class)->dispatch(
-            'kirim_chat',
-            $user,
-            $message,
-            [],
-            $recipient,
-        );
+        try {
+            $recipient = $conversation->otherParticipant($user);
+            app(WhatsappNotificationService::class)->dispatch(
+                'kirim_chat',
+                $user,
+                $message,
+                [],
+                $recipient,
+            );
+        } catch (Throwable $e) {
+            Log::warning('WhatsApp notifikasi chat gagal, pesan tetap tersimpan.', [
+                'message_id' => $message->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         if ($request->expectsJson()) {
-            return response()->json(['message' => $message]);
+            return response()->json(['message' => $this->formatMessage($message)]);
         }
 
         return back();
@@ -243,6 +279,28 @@ class ChatController extends Controller
         $conversation->delete();
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatMessage(Message $message): array
+    {
+        $message->loadMissing('sender');
+
+        return [
+            'id' => $message->id,
+            'conversation_id' => $message->conversation_id,
+            'sender_id' => $message->sender_id,
+            'body' => $message->body,
+            'attachment_url' => $message->attachment_url,
+            'attachment_original_name' => $message->attachment_original_name,
+            'context_type' => $message->context_type,
+            'context_id' => $message->context_id,
+            'read_at' => $message->read_at?->toIso8601String(),
+            'created_at' => $message->created_at?->toIso8601String(),
+            'sender' => $this->formatChatUser($message->sender),
+        ];
     }
 
     private function authorizedConversation(Request $request, int $conversationId): Conversation

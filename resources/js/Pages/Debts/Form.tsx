@@ -1,4 +1,5 @@
 import InputError from '@/Components/InputError';
+import ImageInput from '@/Components/ImageInput';
 import AppLayout from '@/Layouts/AppLayout';
 import { dateTime } from '@/lib/format';
 import { useForm, usePage } from '@inertiajs/react';
@@ -50,7 +51,15 @@ export default function DebtForm({ debt }: { debt: any }) {
                 </label>
                 <label><span className="mb-2 block text-sm font-bold">Nominal (Rp)</span><input className="input" type="number" min="1" value={data.amount} onChange={(e) => setData('amount', e.target.value)} /><InputError message={errors.amount} /></label>
                 <label><span className="mb-2 block text-sm font-bold">Status</span><select className="input" value={data.status} onChange={(e) => setData('status', e.target.value)}><option value="belum_selesai">Belum</option><option value="sudah_selesai">Selesai</option></select><InputError message={errors.status} /></label>
-                <label><span className="mb-2 block text-sm font-bold">Gambar</span><input className="input" type="file" accept="image/png,image/jpeg" onChange={(e) => setData('evidence', e.target.files?.[0])} /><InputError message={errors.evidence} /></label>
+                <label>
+                    <span className="mb-2 block text-sm font-bold">Gambar</span>
+                    <ImageInput
+                        accept="image/png,image/jpeg"
+                        onChange={(file) => setData('evidence', file)}
+                        error={errors.evidence}
+                        facingMode="environment"
+                    />
+                </label>
                 <button disabled={processing} className="btn-primary"><Save className="h-4 w-4" /> Simpan</button>
             </form>
         </AppLayout>

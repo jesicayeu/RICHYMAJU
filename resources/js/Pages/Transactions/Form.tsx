@@ -1,4 +1,5 @@
 import InputError from '@/Components/InputError';
+import ImageInput from '@/Components/ImageInput';
 import AppLayout from '@/Layouts/AppLayout';
 import { dateTime } from '@/lib/format';
 import { useForm, usePage } from '@inertiajs/react';
@@ -216,8 +217,12 @@ export default function TransactionForm({ transaction }: any) {
                 )}
                 <label id="field-evidence">
                     <span className="mb-2 block text-sm font-bold">Gambar</span>
-                    <input className="input" type="file" accept="image/png,image/jpeg" onChange={(e) => setData('evidence', e.target.files?.[0] ?? null)} />
-                    <InputError message={errors.evidence} />
+                    <ImageInput
+                        accept="image/png,image/jpeg"
+                        onChange={(file) => setData('evidence', file)}
+                        error={errors.evidence}
+                        facingMode="environment"
+                    />
                 </label>
                 <button type="submit" disabled={processing} className="btn-primary">
                     <Save className="h-4 w-4" /> {processing ? 'Menyimpan...' : 'Simpan'}

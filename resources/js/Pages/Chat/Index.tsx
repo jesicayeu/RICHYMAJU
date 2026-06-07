@@ -1,10 +1,11 @@
 import ConfirmModal from '@/Components/ConfirmModal';
+import ImageInput from '@/Components/ImageInput';
 import AppLayout from '@/Layouts/AppLayout';
 import { dateTime, dateTimeNoSeconds } from '@/lib/format';
 import { useEcho } from '@laravel/echo-react';
 import { useForm, usePage } from '@inertiajs/react';
 import axios from 'axios';
-import { Check, CheckCheck, ChevronLeft, ImagePlus, Search, Send, Trash2, X } from 'lucide-react';
+import { Check, CheckCheck, ChevronLeft, Search, Send, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { PageProps, User, UserPresence } from '@/types';
@@ -165,6 +166,10 @@ function MessageAttachmentBlock({ message, mine }: { message: any; mine: boolean
             📄 <span className="truncate">{name || 'Unduh berkas'}</span>
         </a>
     );
+}
+
+function csrfToken(): string {
+    return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';
 }
 
 function appendMessages(current: any[], incoming: any[]): any[] {
@@ -440,10 +445,13 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
     const [messages, setMessages] = useState<any[]>(activeConversation?.messages ?? []);
     const [unread, setUnread] = useState<Record<number, number>>({});
     const [sidebarQuery, setSidebarQuery] = useState('');
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const lastMessageIdRef = useRef(0);
+    const attachmentFileRef = useRef<File | null>(null);
+    const pendingRecipientRef = useRef<ContactUser | null>(null);
+    const [attachmentFile, setAttachmentFileState] = useState<File | null>(null);
     const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
+    const [sendError, setSendError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -465,8 +473,11 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
         body: '',
         context_type: '',
         context_id: '',
-        attachment: null as File | null,
     });
+
+    useEffect(() => {
+        pendingRecipientRef.current = pendingRecipient;
+    }, [pendingRecipient]);
 
     const activeItem = useMemo(
         () => conversationItems.find((c) => c.id === activeId) ?? null,
@@ -514,7 +525,7 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
                 ),
             );
 
-            if (conversationId === activeId) {
+            if (conversationId === Number(activeId)) {
                 setMessages((current) => appendMessages(current, [message]));
                 if (!isMine) {
                     void markConversationRead(conversationId);
@@ -601,8 +612,9 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
             setOpenSwipeId(null);
             if (attachmentPreview) URL.revokeObjectURL(attachmentPreview);
             setAttachmentPreview(null);
-            form.setData('attachment', null);
-            if (fileInputRef.current) fileInputRef.current.value = '';
+            setAttachmentFileState(null);
+            attachmentFileRef.current = null;
+            setSendError(null);
 
             if (!item.id) {
                 setPendingRecipient(item.other ?? null);
@@ -732,86 +744,97 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
     }, []);
 
     const clearAttachment = () => {
-        form.setData('attachment', null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        attachmentFileRef.current = null;
+        setAttachmentFileState(null);
         if (attachmentPreview) {
             URL.revokeObjectURL(attachmentPreview);
             setAttachmentPreview(null);
         }
     };
 
-    const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0] ?? null;
+    const setAttachmentFile = (file: File) => {
         if (attachmentPreview) URL.revokeObjectURL(attachmentPreview);
-        if (file) {
-            setAttachmentPreview(URL.createObjectURL(file));
-            form.setData('attachment', file);
-            form.clearErrors('attachment');
-        } else {
-            setAttachmentPreview(null);
-            form.setData('attachment', null);
-        }
+        attachmentFileRef.current = file;
+        setAttachmentFileState(file);
+        setAttachmentPreview(URL.createObjectURL(file));
+        setSendError(null);
     };
 
     const send = async (e: React.FormEvent) => {
         e.preventDefault();
         const bodyText = form.data.body.trim();
-        const file = form.data.attachment;
+        const file = attachmentFileRef.current;
         if (!bodyText && !file) return;
 
         const formData = new FormData();
         if (activeId) {
             formData.append('conversation_id', String(activeId));
-        } else if (pendingRecipient?.id) {
-            formData.append('recipient_id', String(pendingRecipient.id));
+        } else if (pendingRecipientRef.current?.id) {
+            formData.append('recipient_id', String(pendingRecipientRef.current.id));
         } else {
+            setSendError('Pilih lawan bicara terlebih dahulu.');
             return;
         }
         if (bodyText) formData.append('body', bodyText);
-        if (file) formData.append('attachment', file);
+        if (file) formData.append('attachment', file, file.name || 'photo.jpg');
         if (form.data.context_type) formData.append('context_type', form.data.context_type);
         if (form.data.context_id) formData.append('context_id', form.data.context_id);
 
         setSending(true);
+        setSendError(null);
         try {
             const { data } = await axios.post(route('chat.messages.store'), formData, {
-                headers: { Accept: 'application/json' },
+                headers: {
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrfToken(),
+                },
             });
-            if (data.message) {
-                const conversationId = data.message.conversation_id as number;
-                if (pendingRecipient) {
-                    const existing = conversationItems.find((c) => c.id === conversationId);
-                    if (existing) {
-                        setConversationItems((prev) =>
-                            sortConversations(
-                                prev.map((item) =>
-                                    item.id === conversationId ? { ...item, lastMessage: data.message } : item,
-                                ),
-                            ),
-                        );
-                    } else {
-                        setConversationItems((prev) =>
-                            sortConversations([
-                                ...prev,
-                                {
-                                    id: conversationId,
-                                    other: pendingRecipient,
-                                    lastMessage: data.message,
-                                },
-                            ]),
-                        );
-                    }
-                    setPendingRecipient(null);
-                    setActiveId(conversationId);
-                    form.setData('conversation_id', conversationId);
-                    form.setData('recipient_id', '');
-                    openChatView();
-                }
-                handleIncomingMessage(conversationId, data.message);
+
+            const message = data?.message;
+            if (!message?.id) {
+                setSendError('Respons server tidak valid. Coba lagi.');
+                return;
             }
+
+            const conversationId = Number(message.conversation_id);
+            const newConversationContact = pendingRecipientRef.current;
+
+            setConversationItems((prev) => {
+                const existing = prev.find((item) => item.id === conversationId);
+                if (existing) {
+                    return sortConversations(
+                        prev.map((item) => (item.id === conversationId ? { ...item, lastMessage: message } : item)),
+                    );
+                }
+
+                if (!newConversationContact) {
+                    return prev;
+                }
+
+                return sortConversations([
+                    ...prev,
+                    {
+                        id: conversationId,
+                        other: newConversationContact,
+                        lastMessage: message,
+                    },
+                ]);
+            });
+
+            if (newConversationContact) {
+                setPendingRecipient(null);
+                pendingRecipientRef.current = null;
+                setActiveId(conversationId);
+                form.setData('conversation_id', conversationId);
+                form.setData('recipient_id', '');
+                openChatView();
+            }
+
+            setMessages((current) => appendMessages(current, [message]));
+
             form.setData('body', '');
-            form.setData('attachment', null);
-            if (fileInputRef.current) fileInputRef.current.value = '';
+            attachmentFileRef.current = null;
+            setAttachmentFileState(null);
             if (attachmentPreview) {
                 URL.revokeObjectURL(attachmentPreview);
                 setAttachmentPreview(null);
@@ -819,15 +842,30 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
         } catch (err: unknown) {
             if (axios.isAxiosError(err)) {
                 if (err.response?.status === 422) {
-                    const errors = err.response.data?.errors ?? {};
-                    Object.entries(errors).forEach(([key, value]) => {
-                        form.setError(key as 'body' | 'attachment', Array.isArray(value) ? value[0] : String(value));
-                    });
+                    const errors = (err.response.data?.errors ?? {}) as Record<string, string | string[]>;
+                    const first = (key: string) => {
+                        const value = errors[key];
+                        return Array.isArray(value) ? value[0] : value;
+                    };
+                    setSendError(
+                        first('attachment') || first('body') || first('recipient_id') || 'Gagal mengirim pesan.',
+                    );
                 } else if (err.response?.status === 403) {
-                    toast.error('Anda tidak diizinkan mengirim pesan ke pengguna ini.');
+                    setSendError('Anda tidak diizinkan mengirim pesan ke pengguna ini.');
+                } else if (err.response?.status === 419) {
+                    setSendError('Sesi habis. Muat ulang halaman lalu coba lagi.');
                 } else {
-                    toast.error('Gagal mengirim pesan. Coba lagi.');
+                    const serverMessage =
+                        typeof err.response?.data === 'object' &&
+                        err.response?.data &&
+                        'message' in err.response.data &&
+                        typeof err.response.data.message === 'string'
+                            ? err.response.data.message
+                            : null;
+                    setSendError(serverMessage || 'Gagal mengirim pesan. Coba lagi.');
                 }
+            } else {
+                setSendError('Gagal mengirim pesan. Periksa koneksi internet.');
             }
         } finally {
             setSending(false);
@@ -835,7 +873,7 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
     };
 
     const canSend =
-        (form.data.body.trim() !== '' || Boolean(form.data.attachment)) && Boolean(activeId || pendingRecipient);
+        (form.data.body.trim() !== '' || Boolean(attachmentFile)) && Boolean(activeId || pendingRecipient);
 
     const showList = !isNarrowScreen || !mobileInChat;
     const showChatPanel = !isNarrowScreen || mobileInChat;
@@ -1022,12 +1060,12 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
                     </div>
 
                     <form onSubmit={send} className="shrink-0 space-y-3 border-t border-slate-100 p-4 dark:border-slate-800">
-                        {form.errors.attachment ? (
-                            <p className="text-sm text-red-600 dark:text-red-400">{form.errors.attachment}</p>
+                        {sendError ? (
+                            <p className="text-sm text-red-600 dark:text-red-400">{sendError}</p>
                         ) : null}
                         {attachmentPreview ? (
                             <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
-                                {form.data.attachment?.type.startsWith('image/') ? (
+                                {attachmentFile?.type.startsWith('image/') ? (
                                     <img src={attachmentPreview} alt="Pratinjau" className="h-16 w-16 rounded-lg object-cover" />
                                 ) : (
                                     <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-slate-200 text-2xl dark:bg-slate-700">
@@ -1035,7 +1073,7 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
                                     </div>
                                 )}
                                 <div className="min-w-0 flex-1 pt-1">
-                                    <p className="truncate text-sm font-medium">{form.data.attachment?.name}</p>
+                                    <p className="truncate text-sm font-medium">{attachmentFile?.name}</p>
                                     <p className="text-xs text-slate-500">JPEG, PNG, GIF, WebP, atau PDF · maks. 10 MB</p>
                                 </div>
                                 <button type="button" onClick={clearAttachment} className="btn-muted rounded-xl p-2" title="Hapus lampiran">
@@ -1044,24 +1082,15 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
                             </div>
                         ) : null}
                         <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-                            <input
-                                ref={fileInputRef}
-                                type="file"
+                            <ImageInput
+                                variant="compact"
                                 accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
-                                className="sr-only"
-                                id="chat-attachment"
-                                onChange={onFileChange}
+                                onChange={setAttachmentFile}
+                                facingMode="environment"
                                 disabled={!activeId && !pendingRecipient}
+                                pickTitle="Lampirkan gambar dari galeri"
+                                cameraTitle="Ambil foto langsung"
                             />
-                            <label
-                                htmlFor="chat-attachment"
-                                className={`btn-muted inline-flex items-center justify-center !rounded-xl !p-3 ${
-                                    !activeId && !pendingRecipient ? 'pointer-events-none opacity-50' : 'cursor-pointer'
-                                }`}
-                                title="Lampirkan gambar atau PDF"
-                            >
-                                <ImagePlus className="h-5 w-5" />
-                            </label>
                             <input
                                 className="input min-w-0 flex-1"
                                 value={form.data.body}
