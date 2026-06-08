@@ -25,6 +25,7 @@ class GoogleSheetsSyncService
 
     public function __construct(
         private GoogleDriveService $drive,
+        private EncryptionService $encryption,
     ) {}
 
     public function upsert(Model $record): void
@@ -47,6 +48,12 @@ class GoogleSheetsSyncService
         $sheetRef = GoogleDriveSetting::current()->sheetIdFor($module);
         if (! filled($sheetRef)) {
             Log::info('Google Sheets sync dilewati: ID sheet belum dikonfigurasi.', compact('module'));
+
+            return;
+        }
+
+        if (! $this->encryption->isReady('text')) {
+            Log::info('Google Sheets sync dilewati: kunci enkripsi teks belum dikonfigurasi.', compact('module'));
 
             return;
         }
@@ -384,7 +391,7 @@ class GoogleSheetsSyncService
             return '-';
         }
 
-        return "'".$value->timezone('Asia/Jakarta')->format('d/m/Y H:i');
+        return $value->timezone('Asia/Jakarta')->format('d/m/Y H:i');
     }
 
     private function evidenceLink(?string $path): string
@@ -398,24 +405,27 @@ class GoogleSheetsSyncService
 
     /**
      * @param  list<string|int|float|null>  $row
-     * @return list<string|int|float>
+     * @return list<string>
      */
     private function normalizeRow(array $row): array
     {
         return array_map(
-            static function ($value) {
-                if ($value === null) {
-                    return '';
-                }
-
-                if (is_int($value) || is_float($value)) {
-                    return $value;
-                }
-
-                return (string) $value;
-            },
+            fn ($value) => $this->encryptSheetValue($value),
             array_values($row),
         );
+    }
+
+    private function encryptSheetValue(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        $plaintext = is_int($value) || is_float($value)
+            ? (string) $value
+            : (string) $value;
+
+        return $this->encryption->encryptText($plaintext);
     }
 
     private function logFailure(string $action, Model $record, Throwable $e): void

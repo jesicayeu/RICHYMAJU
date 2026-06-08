@@ -99,9 +99,6 @@ export default function GoogleDrivePanel({
         <motion.div className="space-y-6">
             <motion.div className="glass-card p-6">
                 <h2 className="text-xl font-black">Konfigurasi Integrasi Google Drive</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Semua upload gambar dan lampiran disimpan ke Google Drive, bukan di server.
-                </p>
             </motion.div>
 
             <motion.div className="flex flex-wrap gap-2">
