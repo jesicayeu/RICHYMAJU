@@ -399,14 +399,21 @@ type MessageReadPayload = {
     read_at: string;
 };
 
+type MessageDeletedPayload = {
+    conversation_id: number;
+    message_id: number;
+};
+
 function ChatConversationListener({
     conversationId,
     onMessage,
     onRead,
+    onDelete,
 }: {
     conversationId: number;
     onMessage: (conversationId: number, message: any) => void;
     onRead: (conversationId: number, payload: MessageReadPayload) => void;
+    onDelete: (conversationId: number, payload: MessageDeletedPayload) => void;
 }) {
     useEcho<ChatMessagePayload>(
         `conversation.${conversationId}`,
@@ -424,6 +431,17 @@ function ChatConversationListener({
         (payload) => {
             if (payload?.conversation_id && payload.message_ids?.length) {
                 onRead(conversationId, payload);
+            }
+        },
+        [conversationId],
+    );
+
+    useEcho<MessageDeletedPayload>(
+        `conversation.${conversationId}`,
+        '.MessageDeleted',
+        (payload) => {
+            if (payload?.conversation_id && payload.message_id) {
+                onDelete(conversationId, payload);
             }
         },
         [conversationId],
@@ -557,6 +575,47 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
             applyReadReceiptsToMessages(receipts);
         },
         [activeId, applyReadReceiptsToMessages],
+    );
+
+    const handleMessageDeleted = useCallback(
+        (conversationId: number, payload: MessageDeletedPayload) => {
+            const deletedId = payload.message_id;
+
+            if (conversationId === activeId) {
+                setMessages((current) => {
+                    const remaining = current.filter((message) => message.id !== deletedId);
+                    setConversationItems((prev) =>
+                        sortConversations(
+                            prev.map((item) =>
+                                item.id === conversationId
+                                    ? {
+                                          ...item,
+                                          lastMessage: remaining.length ? remaining[remaining.length - 1] : null,
+                                      }
+                                    : item,
+                            ),
+                        ),
+                    );
+
+                    return remaining;
+                });
+
+                return;
+            }
+
+            setConversationItems((prev) =>
+                sortConversations(
+                    prev.map((item) => {
+                        if (item.id !== conversationId || item.lastMessage?.id !== deletedId) {
+                            return item;
+                        }
+
+                        return { ...item, lastMessage: null };
+                    }),
+                ),
+            );
+        },
+        [activeId],
     );
 
     const requestDeleteConversation = useCallback(
@@ -878,15 +937,25 @@ export default function ChatIndex({ conversations, activeConversation, contacts 
     const showList = !isNarrowScreen || !mobileInChat;
     const showChatPanel = !isNarrowScreen || mobileInChat;
 
+    const conversationListenerIds = useMemo(
+        () =>
+            conversationItems
+                .map((item) => item.id)
+                .filter((id): id is number => typeof id === 'number'),
+        [conversationItems],
+    );
+
     return (
         <AppLayout title="Chat">
-            {activeId ? (
+            {conversationListenerIds.map((conversationId) => (
                 <ChatConversationListener
-                    conversationId={activeId}
+                    key={conversationId}
+                    conversationId={conversationId}
                     onMessage={handleIncomingMessage}
                     onRead={handleMessageRead}
+                    onDelete={handleMessageDeleted}
                 />
-            ) : null}
+            ))}
 
             <div className="glass-card flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:grid-cols-[320px_1fr] lg:grid-rows-1">
                 <aside

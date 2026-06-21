@@ -16,14 +16,97 @@ import {
     Package,
     Plus,
     Search,
+    Trash2,
 } from 'lucide-react';
 import { FormEvent, useState } from 'react';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
+
+type ProductOption = {
+    id: number;
+    name: string;
+    unit: string;
+    stock: number;
+};
 
 type SummaryData = {
     itemTypes: number;
     incoming: number;
     outgoing: number;
+    availableProducts?: number;
+    emptyProducts?: number;
 };
+
+function ProductStockSummary({ products, isAdmin = false }: { products: ProductOption[]; isAdmin?: boolean }) {
+    const { requestDelete, deleteModal } = useConfirmDelete({
+        buildRoute: (id) => route('stocks.clear-product', id),
+        title: 'Hapus Stok Produk',
+        message: (target) =>
+            `Yakin hapus semua riwayat stok untuk "${target.label}"? Produk tetap ada di Kelola Produk, hanya data stok yang dihapus.`,
+    });
+
+    if (products.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="glass-card mb-6 min-w-0 overflow-hidden">
+            <div className="border-b border-slate-100 p-4 dark:border-slate-800 sm:p-6">
+                <h2 className="text-lg font-black">Stok Produk Saat Ini</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                    Angka stok otomatis terupdate dari barang masuk, penjualan POS, dan keluar manual.
+                </p>
+            </div>
+            <div className="data-table-wrap">
+                <table className="data-table w-full text-sm">
+                    <thead>
+                        <tr>
+                            <th>Produk</th>
+                            <th className="col-qty">Stok Tersedia</th>
+                            <th className="col-tight col-actions">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {products.map((product) => (
+                            <tr key={product.id}>
+                                <td className="font-medium">{product.name}</td>
+                                <td className={`col-qty font-semibold tabular-nums ${product.stock <= 0 ? 'text-rose-600' : ''}`}>
+                                    {formatQuantity(product.stock, product.unit)}
+                                </td>
+                                <td className="col-tight col-actions">
+                                    <div className="table-actions">
+                                        <Link
+                                            href={route('stocks.index', { product_id: product.id })}
+                                            className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs"
+                                        >
+                                            Riwayat
+                                        </Link>
+                                        <Link
+                                            href={route('stocks.create', { product_id: product.id, type: 'masuk' })}
+                                            className="table-action-btn btn-primary !h-8 !px-2.5 !py-1 text-xs"
+                                        >
+                                            + Masuk
+                                        </Link>
+                                        {isAdmin && (
+                                            <button
+                                                type="button"
+                                                onClick={() => requestDelete({ id: product.id, label: product.name })}
+                                                className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs text-rose-600"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                                Hapus
+                                            </button>
+                                        )}
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {deleteModal}
+        </div>
+    );
+}
 
 const typeTabs = [
     { value: '', label: 'Semua Stok' },
@@ -175,7 +258,14 @@ function StocksTable({ movements }: { movements: any }) {
                                 <td className="col-date" title={movement.occurred_at}>
                                     {dateTimeCompact(movement.occurred_at)}
                                 </td>
-                                <td className="truncate font-medium">{movement.item_name}</td>
+                                <td className="truncate font-medium">
+                                    <div>{movement.item_name}</div>
+                                    {movement.product_id && (
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                                            Produk POS
+                                        </span>
+                                    )}
+                                </td>
                                 <td className="col-tight">
                                     <Badge value={movement.type} label={humanStockType(movement.type)} />
                                 </td>
@@ -209,12 +299,14 @@ function KasirStocksIndex({
     setFilter,
     navigate,
     submit,
+    products = [],
 }: {
     movements: any;
     filter: Record<string, string | undefined>;
     setFilter: (f: Record<string, string | undefined>) => void;
     navigate: (extra?: Record<string, string | number | undefined>) => void;
     submit: (e: FormEvent) => void;
+    products?: ProductOption[];
 }) {
     return (
         <AppLayout title="Halaman Stok Barang">
@@ -223,6 +315,8 @@ function KasirStocksIndex({
                     <Plus className="h-4 w-4" /> Tambah Stok
                 </Link>
             </div>
+
+            <ProductStockSummary products={products} />
 
             <div className="glass-card min-w-0 overflow-hidden">
                 <div className="space-y-4 border-b border-slate-100 p-4 dark:border-slate-800 sm:p-6">
@@ -298,6 +392,7 @@ function AdminStocksIndex({
     navigate,
     submit,
     summary,
+    products = [],
 }: {
     movements: any;
     filters: Record<string, string | undefined>;
@@ -306,6 +401,7 @@ function AdminStocksIndex({
     navigate: (extra?: Record<string, string | number | undefined>) => void;
     submit: (e: FormEvent) => void;
     summary: SummaryData;
+    products?: ProductOption[];
 }) {
     const toggleSort = () => {
         const direction = filter.direction === 'asc' ? 'desc' : 'asc';
@@ -315,13 +411,27 @@ function AdminStocksIndex({
 
     return (
         <AppLayout title="Stok Barang">
-            <div className="mb-6 grid gap-4 md:grid-cols-3">
+            <div className="mb-6 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
                 <StatCard
                     title="Total Barang"
                     value={summary.itemTypes.toLocaleString('id-ID')}
                     subtitle="Jenis Barang"
                     icon={Package}
                     tone="indigo"
+                />
+                <StatCard
+                    title="Stok Tersedia"
+                    value={(summary.availableProducts ?? 0).toLocaleString('id-ID')}
+                    subtitle="Produk"
+                    icon={Package}
+                    tone="emerald"
+                />
+                <StatCard
+                    title="Stok Habis"
+                    value={(summary.emptyProducts ?? 0).toLocaleString('id-ID')}
+                    subtitle="Produk"
+                    icon={Package}
+                    tone="rose"
                 />
                 <StatCard
                     title="Barang Masuk"
@@ -339,11 +449,17 @@ function AdminStocksIndex({
                 />
             </div>
 
+            <ProductStockSummary products={products} isAdmin />
+
             <div className="glass-card min-w-0 overflow-hidden">
                 <div className="border-b border-slate-100 p-4 dark:border-slate-800 sm:p-6">
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                         <h2 className="text-lg font-black">Daftar Stok Barang</h2>
                         <div className="flex flex-wrap items-center gap-2">
+                            <Link href={route('products.index')} className="btn-muted shrink-0">
+                                <Package className="h-4 w-4" />
+                                <span className="hidden sm:inline">Kelola Produk</span>
+                            </Link>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -362,6 +478,19 @@ function AdminStocksIndex({
                     </div>
                     <h3 className="mb-4 text-base font-black text-slate-600 dark:text-slate-400">Filter Stok</h3>
                     <form onSubmit={submit} className="filter-bar filter-bar--stocks">
+                        <select
+                            className="input filter-bar__control"
+                            aria-label="Produk Penjualan"
+                            value={filter.product_id ?? ''}
+                            onChange={(e) => setFilter({ ...filter, product_id: e.target.value })}
+                        >
+                            <option value="">Semua Produk</option>
+                            {products.map((product) => (
+                                <option key={product.id} value={product.id}>
+                                    {product.name} — Stok: {formatQuantity(product.stock, product.unit)}
+                                </option>
+                            ))}
+                        </select>
                         <input
                             type="date"
                             className="input filter-bar__control"
@@ -457,7 +586,14 @@ function AdminStocksIndex({
                                         <td className="col-date" title={movement.occurred_at}>
                                             {dateTimeCompact(movement.occurred_at)}
                                         </td>
-                                        <td className="truncate font-medium">{movement.item_name}</td>
+                                        <td className="truncate font-medium">
+                                    <div>{movement.item_name}</div>
+                                    {movement.product_id && (
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                                            Produk POS
+                                        </span>
+                                    )}
+                                </td>
                                         <td className="col-tight">
                                             <Badge
                                                 value={movement.type}
@@ -509,11 +645,13 @@ export default function StocksIndex({
     filters,
     summary,
     isAdmin,
+    products = [],
 }: {
     movements: any;
     filters: Record<string, string | undefined>;
     summary?: SummaryData;
     isAdmin: boolean;
+    products?: ProductOption[];
 }) {
     const [filter, setFilter] = useState(filters ?? {});
 
@@ -536,13 +674,14 @@ export default function StocksIndex({
     const shared = { movements, filters, filter, setFilter, navigate, submit };
 
     if (!isAdmin) {
-        return <KasirStocksIndex {...shared} />;
+        return <KasirStocksIndex {...shared} products={products} />;
     }
 
     return (
         <AdminStocksIndex
             {...shared}
-            summary={summary ?? { itemTypes: 0, incoming: 0, outgoing: 0 }}
+            products={products}
+            summary={summary ?? { itemTypes: 0, incoming: 0, outgoing: 0, availableProducts: 0, emptyProducts: 0 }}
         />
     );
 }

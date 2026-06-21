@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Product;
 use App\Models\StockMovement;
 use App\Services\EncryptedFieldSearch;
 use App\Services\EncryptedQuery;
 use App\Services\GoogleSheetsSyncService;
+use App\Services\ProductStockService;
 use App\Services\WhatsappNotificationService;
 use App\Support\Audit;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -15,17 +17,23 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class StockController extends Controller
 {
+    public function __construct(
+        private ProductStockService $stockService,
+    ) {}
+
     public function index(Request $request): Response
     {
         $filters = $request->only([
             'search',
             'date',
             'item_name',
+            'product_id',
             'type',
             'status',
             'quantity',
@@ -34,7 +42,7 @@ class StockController extends Controller
             'per_page',
         ]);
 
-        $baseQuery = StockMovement::query()->with('user')->latest('occurred_at');
+        $baseQuery = StockMovement::query()->with(['user', 'product'])->latest('occurred_at');
 
         if (! $request->user()->isAdmin()) {
             $baseQuery->where('user_id', $request->user()->id);
@@ -57,15 +65,25 @@ class StockController extends Controller
         );
 
         $isAdmin = $request->user()->isAdmin();
+        $activeProducts = Product::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+        $stockMap = $this->stockService->stockMapForProducts($activeProducts);
 
         $payload = [
             'movements' => $movements,
             'filters' => $filters,
             'isAdmin' => $isAdmin,
+            'products' => $this->productsForSummary($activeProducts, $stockMap),
         ];
 
         if ($isAdmin) {
-            $payload['summary'] = $this->buildSummary($filteredQuery);
+            $payload['summary'] = [
+                ...$this->buildSummary($filteredQuery),
+                'availableProducts' => collect($stockMap)->filter(fn (float $stock) => $stock > 0)->count(),
+                'emptyProducts' => collect($stockMap)->filter(fn (float $stock) => $stock <= 0)->count(),
+            ];
         }
 
         return Inertia::render('Stocks/Index', $payload);
@@ -73,15 +91,21 @@ class StockController extends Controller
 
     public function create(Request $request): Response
     {
+        $products = $this->productOptions();
+
         return Inertia::render('Stocks/Form', [
             'movement' => null,
             'defaultType' => $request->query('type', 'masuk'),
+            'defaultProductId' => $request->query('product_id'),
+            'products' => $products,
+            'productStocks' => $this->productStocksFromOptions($products),
         ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $data = $this->validated($request);
+        $data = $this->validated($request, isUpdate: false);
+        $this->assertSufficientStock($data);
 
         $movement = DB::transaction(function () use ($request, $data) {
             $movement = StockMovement::create([
@@ -103,33 +127,49 @@ class StockController extends Controller
 
         app(GoogleSheetsSyncService::class)->upsert($movement);
 
+        if (! empty($data['product_id'])) {
+            app(GoogleSheetsSyncService::class)->syncModule('products');
+        }
+
         return redirect()->route('stocks.show', $movement)->with('success', 'Stok tersimpan.');
     }
 
     public function show(StockMovement $stock, Request $request): Response
     {
         $this->authorizeStock($stock, $request);
+        $stock->load(['user', 'product', 'audits.user']);
+
+        $currentStock = null;
+        if ($stock->product) {
+            $currentStock = $this->stockService->availableStock($stock->product);
+        }
 
         return Inertia::render('Stocks/Show', [
-            'movement' => $stock->load(['user', 'audits.user']),
+            'movement' => $stock,
             'isAdmin' => $request->user()->isAdmin(),
+            'currentStock' => $currentStock,
         ]);
     }
 
     public function edit(StockMovement $stock, Request $request): Response
     {
         $this->authorizeStock($stock, $request);
+        $products = $this->productOptions();
 
         return Inertia::render('Stocks/Form', [
             'movement' => $stock,
             'defaultType' => $stock->type,
+            'defaultProductId' => $stock->product_id,
+            'products' => $products,
+            'productStocks' => $this->productStocksFromOptions($products),
         ]);
     }
 
     public function update(StockMovement $stock, Request $request): RedirectResponse
     {
         $this->authorizeStock($stock, $request);
-        $data = $this->validated($request);
+        $data = $this->validated($request, isUpdate: true);
+        $this->assertSufficientStock($data, $stock);
         $before = $stock->toArray();
         $stock->update($data);
         $stock->refresh();
@@ -142,6 +182,10 @@ class StockController extends Controller
         );
 
         app(GoogleSheetsSyncService::class)->upsert($stock);
+
+        if (! empty($data['product_id']) || ! empty($stock->product_id)) {
+            app(GoogleSheetsSyncService::class)->syncModule('products');
+        }
 
         return redirect()->route('stocks.show', $stock)->with('success', 'Stok diperbarui.');
     }
@@ -161,10 +205,36 @@ class StockController extends Controller
             );
 
             $stock->delete();
-            app(GoogleSheetsSyncService::class)->syncModule('stocks');
         });
 
+        app(GoogleSheetsSyncService::class)->syncModule('stocks');
+
         return redirect()->route('stocks.index')->with('success', 'Data stok dihapus.');
+    }
+
+    public function clearProductStock(Product $product, Request $request): RedirectResponse
+    {
+        abort_unless($request->user()->isAdmin(), 403);
+
+        $deleted = 0;
+
+        DB::transaction(function () use ($product, $request, &$deleted) {
+            foreach ($this->movementsForProduct($product) as $movement) {
+                $before = $movement->toArray();
+                Audit::record($movement, 'hapus', $before, [], "Riwayat stok produk {$product->name} dihapus.");
+                $movement->delete();
+                $deleted++;
+            }
+        });
+
+        app(GoogleSheetsSyncService::class)->syncModule('stocks');
+        app(GoogleSheetsSyncService::class)->syncModule('products');
+
+        $message = $deleted > 0
+            ? "Stok produk {$product->name} berhasil dihapus ({$deleted} riwayat)."
+            : "Produk {$product->name} tidak memiliki riwayat stok.";
+
+        return redirect()->route('stocks.index')->with('success', $message);
     }
 
     public function export(Request $request)
@@ -190,20 +260,78 @@ class StockController extends Controller
         ])->download('laporan-stok-barang-richy-maju.pdf');
     }
 
-    private function validated(Request $request): array
+    /**
+     * @param  \Illuminate\Support\Collection<int, Product>  $products
+     * @param  array<int, float>  $stockMap
+     * @return list<array{id: int, name: string, unit: string, stock: float}>
+     */
+    private function productsForSummary($products, array $stockMap): array
+    {
+        return $products
+            ->filter(function (Product $product) use ($stockMap) {
+                $stock = $stockMap[$product->id] ?? 0;
+
+                if ($stock > 0) {
+                    return true;
+                }
+
+                return $this->movementsForProduct($product)->isNotEmpty();
+            })
+            ->map(fn (Product $product) => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'unit' => $product->unit,
+                'stock' => $stockMap[$product->id] ?? 0,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, StockMovement>
+     */
+    private function movementsForProduct(Product $product)
+    {
+        $linked = StockMovement::query()->where('product_id', $product->id)->get();
+        $name = mb_strtolower(trim((string) $product->name));
+
+        if ($name === '') {
+            return $linked;
+        }
+
+        $legacy = StockMovement::query()
+            ->whereNull('product_id')
+            ->get()
+            ->filter(fn (StockMovement $movement) => mb_strtolower(trim((string) $movement->item_name)) === $name);
+
+        return $linked->concat($legacy);
+    }
+
+    private function validated(Request $request, bool $isUpdate = false): array
     {
         if ($request->has('quantity')) {
             $request->merge(['quantity' => $this->normalizeQuantity($request->input('quantity'))]);
         }
 
-        return $request->validate([
-            'item_name' => ['required', 'string', 'max:255'],
+        $data = $request->validate([
+            'product_id' => $isUpdate
+                ? ['nullable', 'integer', 'exists:products,id']
+                : ['required', 'integer', 'exists:products,id'],
+            'item_name' => ['required_without:product_id', 'nullable', 'string', 'max:255'],
             'type' => ['required', 'in:masuk,keluar'],
             'quantity' => ['required', 'numeric', 'min:0.01'],
-            'unit' => ['required', 'string', 'max:30'],
+            'unit' => ['required_without:product_id', 'nullable', 'string', 'max:30'],
             'status' => ['required', 'in:selesai,diproses'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
+
+        if (! empty($data['product_id'])) {
+            $product = Product::query()->findOrFail($data['product_id']);
+            $data['item_name'] = $product->name;
+            $data['unit'] = $product->unit;
+        }
+
+        return $data;
     }
 
     private function applyFilters(Builder $query, array $filters): void
@@ -219,6 +347,7 @@ class StockController extends Controller
 
             $q->whereIn('id', $encryptedIds);
         });
+        $query->when($filters['product_id'] ?? null, fn ($q, $v) => $q->where('product_id', (int) $v));
         $query->when($filters['item_name'] ?? null, function (Builder $q, string $v) {
             $ids = EncryptedFieldSearch::matchingIds($q, $v, ['item_name']);
             $q->whereIn('id', $ids !== [] ? $ids : [-1]);
@@ -285,5 +414,65 @@ class StockController extends Controller
         }
 
         return round((float) $raw, 2);
+    }
+
+    /**
+     * @return list<array{id: int, name: string, unit: string}>
+     */
+    private function productOptions(): array
+    {
+        return Product::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Product $product) => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'unit' => $product->unit,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<array{id: int, name: string, unit: string}>  $products
+     * @return array<int, float>
+     */
+    private function productStocksFromOptions(array $products): array
+    {
+        if ($products === []) {
+            return [];
+        }
+
+        $models = Product::query()
+            ->whereIn('id', collect($products)->pluck('id'))
+            ->get();
+
+        return $this->stockService->stockMapForProducts($models);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function assertSufficientStock(array $data, ?StockMovement $ignore = null): void
+    {
+        if (($data['type'] ?? '') !== 'keluar' || empty($data['product_id'])) {
+            return;
+        }
+
+        $product = Product::query()->findOrFail($data['product_id']);
+        $available = $this->stockService->availableStock($product);
+
+        if ($ignore && (int) $ignore->product_id === (int) $product->id && $ignore->type === 'keluar') {
+            $available += (float) $ignore->quantity;
+        }
+
+        $requested = (float) $data['quantity'];
+
+        if ($requested > $available) {
+            throw ValidationException::withMessages([
+                'quantity' => 'Stok tidak mencukupi. Tersedia: '.number_format($available, 0, ',', '.').' '.$product->unit,
+            ]);
+        }
     }
 }

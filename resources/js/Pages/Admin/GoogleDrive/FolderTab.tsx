@@ -3,6 +3,8 @@ import { useForm } from '@inertiajs/react';
 import { ExternalLink, Save } from 'lucide-react';
 import { FormEvent, useEffect } from 'react';
 
+type FolderModule = 'transactions' | 'stocks' | 'debts' | 'chat' | 'profile';
+
 type Folders = {
     transactions: string;
     stocks: string;
@@ -11,18 +13,20 @@ type Folders = {
     profile: string;
 };
 
-function driveFolderUrl(folderId: string): string {
-    return `https://drive.google.com/drive/folders/${encodeURIComponent(folderId.trim())}`;
+function folderBrowseUrl(module: FolderModule): string {
+    return route('admin.google-drive.folders.browse', { module });
 }
 
 function FolderIdField({
     label,
+    module,
     value,
     onChange,
     placeholder,
     error,
 }: {
     label: string;
+    module: FolderModule;
     value: string;
     onChange: (value: string) => void;
     placeholder: string;
@@ -43,10 +47,10 @@ function FolderIdField({
                     required
                 />
                 <a
-                    href={canOpen ? driveFolderUrl(folderId) : undefined}
+                    href={canOpen ? folderBrowseUrl(module) : undefined}
                     target="_blank"
                     rel="noopener noreferrer"
-                    aria-label={canOpen ? `Buka ${label} di Google Drive` : `${label} belum diisi`}
+                    aria-label={canOpen ? `Buka ${label} dengan file terdekripsi` : `${label} belum diisi`}
                     className={`btn-muted grid h-[42px] w-[42px] shrink-0 place-items-center !rounded-2xl !p-0 ${
                         canOpen ? '' : 'pointer-events-none opacity-40'
                     }`}
@@ -88,12 +92,15 @@ export default function FolderTab({ folders }: { folders: Folders }) {
         <form onSubmit={submit} className="glass-card space-y-4 p-6">
             <h3 className="font-black">Folder</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-                Masukkan ID folder Google Drive untuk setiap modul. File upload akan disimpan ke folder yang sesuai.
-                Klik ikon link di samping input untuk membuka isi folder di tab baru.
+                Masukkan ID folder Google Drive untuk setiap modul. File upload akan disimpan terenkripsi ke folder
+                yang sesuai. Klik ikon link di samping input untuk membuka pratinjau file terdekripsi dari Google
+                Drive lewat aplikasi web. Jika folder atau file dibuka langsung di Google Drive, isinya tetap
+                terenkripsi. Pastikan klik Simpan jika ID folder baru diubah.
             </p>
 
             <FolderIdField
                 label="ID Folder Transaksi"
+                module="transactions"
                 value={form.data.folder_transactions}
                 onChange={(v) => form.setData('folder_transactions', v)}
                 placeholder="1kW5Yx9PqlW89rflyHNUb8mbFT1saetwD"
@@ -102,6 +109,7 @@ export default function FolderTab({ folders }: { folders: Folders }) {
 
             <FolderIdField
                 label="ID Folder Stok Barang"
+                module="stocks"
                 value={form.data.folder_stocks}
                 onChange={(v) => form.setData('folder_stocks', v)}
                 placeholder="1XOsiByHFDqgxpMQLvKyxTPN94NeVBsX4"
@@ -110,6 +118,7 @@ export default function FolderTab({ folders }: { folders: Folders }) {
 
             <FolderIdField
                 label="ID Folder Utang"
+                module="debts"
                 value={form.data.folder_debts}
                 onChange={(v) => form.setData('folder_debts', v)}
                 placeholder="10MoyTWS9qzCnEH0_Cf0HTm2sHEsHr2hy"
@@ -118,6 +127,7 @@ export default function FolderTab({ folders }: { folders: Folders }) {
 
             <FolderIdField
                 label="ID Folder Chat"
+                module="chat"
                 value={form.data.folder_chat}
                 onChange={(v) => form.setData('folder_chat', v)}
                 placeholder="1rg9s8c3fWOCN7XchB-5vSpQHhEsgWcr2"
@@ -126,6 +136,7 @@ export default function FolderTab({ folders }: { folders: Folders }) {
 
             <FolderIdField
                 label="ID Folder Profil"
+                module="profile"
                 value={form.data.folder_profile}
                 onChange={(v) => form.setData('folder_profile', v)}
                 placeholder="Masukkan ID folder Google Drive untuk foto profil"

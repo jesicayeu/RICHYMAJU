@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 #[Fillable([
     'code',
     'user_id',
+    'product_id',
     'item_name',
     'type',
     'quantity',
@@ -39,6 +40,11 @@ class StockMovement extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
     }
 
     public function audits(): MorphMany

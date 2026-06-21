@@ -14,6 +14,8 @@ return [
     ],
 
     'sheets' => [
+        'sales' => env('GOOGLE_SHEET_SALES', ''),
+        'products' => env('GOOGLE_SHEET_PRODUCTS', ''),
         'transactions' => env('GOOGLE_SHEET_TRANSACTIONS', '1J8R7DZ817w9MLaWcDCn7Jx20TKyJj_krAoY8j1LZ5m0/edit?gid=0#gid=0'),
         'stocks' => env('GOOGLE_SHEET_STOCKS', '1J8R7DZ817w9MLaWcDCn7Jx20TKyJj_krAoY8j1LZ5m0/edit?gid=728848999#gid=728848999'),
         'debts' => env('GOOGLE_SHEET_DEBTS', '1J8R7DZ817w9MLaWcDCn7Jx20TKyJj_krAoY8j1LZ5m0/edit?gid=1109585085#gid=1109585085'),

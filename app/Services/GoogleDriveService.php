@@ -173,19 +173,32 @@ class GoogleDriveService
         ];
     }
 
+    private function guessMimeTypeFromFilename(?string $filename): ?string
+    {
+        if (! $filename) {
+            return null;
+        }
+
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+        return match ($ext) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'webp' => 'image/webp',
+            'pdf' => 'application/pdf',
+            default => null,
+        };
+    }
+
     private function guessMimeType(?string $filename, string $contents): ?string
     {
         if ($filename) {
-            $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+            $fromName = $this->guessMimeTypeFromFilename($filename);
 
-            return match ($ext) {
-                'jpg', 'jpeg' => 'image/jpeg',
-                'png' => 'image/png',
-                'gif' => 'image/gif',
-                'webp' => 'image/webp',
-                'pdf' => 'application/pdf',
-                default => null,
-            };
+            if ($fromName) {
+                return $fromName;
+            }
         }
 
         if (str_starts_with($contents, "\xFF\xD8\xFF")) {
@@ -199,9 +212,68 @@ class GoogleDriveService
         return null;
     }
 
+    /**
+     * @return list<array{id: string, name: string, mime_type: string, size: ?int, created_at: ?string, url: string, drive_url: string}>
+     */
+    public function listFilesInFolder(string $folderId): array
+    {
+        $drive = new Drive($this->authorizedClient());
+        $results = [];
+        $pageToken = null;
+
+        do {
+            $params = [
+                'q' => "'{$folderId}' in parents and trashed=false",
+                'fields' => 'nextPageToken,files(id,name,mimeType,size,createdTime)',
+                'orderBy' => 'createdTime desc',
+                'pageSize' => 100,
+            ];
+
+            if ($pageToken) {
+                $params['pageToken'] = $pageToken;
+            }
+
+            $response = $drive->files->listFiles($params);
+
+            foreach ($response->getFiles() as $file) {
+                $fileId = $file->getId();
+
+                if (! $fileId) {
+                    continue;
+                }
+
+                $name = $file->getName() ?? 'berkas';
+
+                $results[] = [
+                    'id' => $fileId,
+                    'name' => $name,
+                    'mime_type' => $this->guessMimeTypeFromFilename($name) ?? 'application/octet-stream',
+                    'size' => $file->getSize() !== null ? (int) $file->getSize() : null,
+                    'created_at' => $file->getCreatedTime(),
+                    'url' => $this->url(self::PREFIX.$fileId),
+                    'drive_url' => $this->fileUrl($fileId),
+                ];
+            }
+
+            $pageToken = $response->getNextPageToken();
+        } while ($pageToken);
+
+        return $results;
+    }
+
     public function isDrivePath(?string $path): bool
     {
         return is_string($path) && str_starts_with($path, self::PREFIX);
+    }
+
+    public function folderUrl(string $folderId): string
+    {
+        return 'https://drive.google.com/drive/folders/'.rawurlencode(trim($folderId));
+    }
+
+    public function fileUrl(string $fileId): string
+    {
+        return 'https://drive.google.com/file/d/'.rawurlencode(trim($fileId)).'/view';
     }
 
     private function fileIdFromPath(string $path): string

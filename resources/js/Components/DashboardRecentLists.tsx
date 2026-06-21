@@ -94,6 +94,32 @@ export function DashboardRecentStocks({ items }: { items: any[] }) {
     );
 }
 
+export function DashboardRecentSales({ items, showUser = false }: { items: any[]; showUser?: boolean }) {
+    return (
+        <RecentListCard
+            title="Penjualan Terbaru"
+            indexRoute={route('sales.index')}
+            emptyMessage="Belum ada penjualan."
+        >
+            {items.length > 0 &&
+                items.map((sale) => (
+                    <RecentItemLink key={sale.id} href={route('sales.show', sale.id)}>
+                        <div className="min-w-0">
+                            <div className="truncate font-bold">
+                                {showUser ? userDisplayName(sale.user) : rupiah(sale.total_amount)}
+                            </div>
+                            <div className="text-sm text-slate-500">
+                                {showUser ? `${rupiah(sale.total_amount)} · ` : ''}
+                                {dateTime(sale.occurred_at)}
+                            </div>
+                        </div>
+                        <Badge value={sale.payment_status} />
+                    </RecentItemLink>
+                ))}
+        </RecentListCard>
+    );
+}
+
 export function DashboardRecentDebts({ items }: { items: any[] }) {
     return (
         <RecentListCard title="Utang Terbaru" indexRoute={route('debts.index')} emptyMessage="Belum ada utang.">

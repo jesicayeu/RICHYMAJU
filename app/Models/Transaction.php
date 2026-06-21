@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 #[Fillable([
     'code',
     'user_id',
+    'sale_id',
     'type',
     'amount',
     'description',
@@ -52,6 +53,11 @@ class Transaction extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function sale(): BelongsTo
+    {
+        return $this->belongsTo(Sale::class);
     }
 
     public function verifier(): BelongsTo

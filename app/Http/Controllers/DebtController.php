@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -263,7 +264,13 @@ class DebtController extends Controller
             return null;
         }
 
-        return $this->drive->upload($request->file('evidence'), 'debts');
+        try {
+            return $this->drive->upload($request->file('evidence'), 'debts');
+        } catch (\Throwable) {
+            throw ValidationException::withMessages([
+                'evidence' => 'Gagal menyimpan bukti ke Google Drive. Pastikan akun Google sudah terhubung dan ID folder yang dikonfigurasi benar.',
+            ]);
+        }
     }
 
     private function authorizeView(Debt $debt, Request $request): void

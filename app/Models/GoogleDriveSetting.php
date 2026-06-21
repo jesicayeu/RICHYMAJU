@@ -14,6 +14,8 @@ class GoogleDriveSetting extends Model
         'folder_debts',
         'folder_chat',
         'folder_profile',
+        'sheet_sales',
+        'sheet_products',
         'sheet_transactions',
         'sheet_stocks',
         'sheet_debts',
@@ -45,6 +47,8 @@ class GoogleDriveSetting extends Model
             'folder_debts' => config('google.folders.debts'),
             'folder_chat' => config('google.folders.chat'),
             'folder_profile' => config('google.folders.profile'),
+            'sheet_sales' => config('google.sheets.sales'),
+            'sheet_products' => config('google.sheets.products'),
             'sheet_transactions' => config('google.sheets.transactions'),
             'sheet_stocks' => config('google.sheets.stocks'),
             'sheet_debts' => config('google.sheets.debts'),
@@ -66,6 +70,8 @@ class GoogleDriveSetting extends Model
     public function sheetIdFor(string $module): ?string
     {
         return match ($module) {
+            'sales' => $this->sheet_sales,
+            'products' => $this->sheet_products,
             'transactions' => $this->sheet_transactions,
             'stocks' => $this->sheet_stocks,
             'debts' => $this->sheet_debts,

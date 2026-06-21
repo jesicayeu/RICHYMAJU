@@ -1,10 +1,16 @@
 import InputError from '@/Components/InputError';
 import AppLayout from '@/Layouts/AppLayout';
-import { dateTime } from '@/lib/format';
+import { dateTime, formatQuantity } from '@/lib/format';
 import { useForm, usePage } from '@inertiajs/react';
 import { Save } from 'lucide-react';
-import { FormEvent, useMemo } from 'react';
+import { FormEvent, useEffect, useMemo } from 'react';
 import { PageProps } from '@/types';
+
+type ProductOption = {
+    id: number;
+    name: string;
+    unit: string;
+};
 
 function normalizeQuantityValue(value: string): string {
     const trimmed = value.trim();
@@ -25,10 +31,25 @@ function normalizeQuantityValue(value: string): string {
     return trimmed;
 }
 
-export default function StockForm({ movement, defaultType }: { movement?: any; defaultType?: string }) {
+export default function StockForm({
+    movement,
+    defaultType,
+    defaultProductId,
+    products = [],
+    productStocks = {},
+}: {
+    movement?: any;
+    defaultType?: string;
+    defaultProductId?: string | number | null;
+    products?: ProductOption[];
+    productStocks?: Record<string, number>;
+}) {
     const { auth } = usePage<PageProps>().props;
     const isEdit = Boolean(movement);
+    const initialProductId = movement?.product_id ?? defaultProductId ?? '';
+
     const { data, setData, post, processing, errors } = useForm({
+        product_id: initialProductId ? String(initialProductId) : '',
         item_name: movement?.item_name ?? '',
         type: movement?.type ?? defaultType ?? 'masuk',
         quantity: movement?.quantity != null ? String(movement.quantity) : '',
@@ -38,15 +59,36 @@ export default function StockForm({ movement, defaultType }: { movement?: any; d
         _method: isEdit ? 'put' : undefined,
     });
 
+    const isLinkedProduct = data.product_id !== '';
+    const selectedProduct = useMemo(
+        () => products.find((product) => String(product.id) === data.product_id),
+        [products, data.product_id],
+    );
+
+    useEffect(() => {
+        if (!selectedProduct) {
+            return;
+        }
+
+        setData((current) => ({
+            ...current,
+            item_name: selectedProduct.name,
+            unit: selectedProduct.unit,
+        }));
+    }, [selectedProduct?.id]);
+
     const occurredAtDisplay = useMemo(
         () => (isEdit ? dateTime(movement.occurred_at) : dateTime(new Date().toISOString())),
         [isEdit, movement?.occurred_at],
     );
 
+    const selectedStock = data.product_id ? productStocks[data.product_id] ?? 0 : null;
+
     const submitOptions = {
         preserveScroll: true,
         transform: (formData: typeof data) => ({
             ...formData,
+            product_id: formData.product_id ? Number(formData.product_id) : null,
             quantity: normalizeQuantityValue(String(formData.quantity ?? '')),
         }),
     };
@@ -70,9 +112,73 @@ export default function StockForm({ movement, defaultType }: { movement?: any; d
                         <input className="input" disabled value={occurredAtDisplay} />
                     </label>
                 </div>
+
+                <label>
+                    <span className="mb-2 block text-sm font-bold">Produk Penjualan</span>
+                    <select
+                        className="input"
+                        value={data.product_id}
+                        required={!isEdit}
+                        onChange={(e) => {
+                            const value = e.target.value;
+                            setData((current) => ({
+                                ...current,
+                                product_id: value,
+                                item_name: value
+                                    ? products.find((product) => String(product.id) === value)?.name ?? current.item_name
+                                    : current.item_name,
+                                unit: value
+                                    ? products.find((product) => String(product.id) === value)?.unit ?? current.unit
+                                    : current.unit,
+                            }));
+                        }}
+                    >
+                        {!isEdit ? (
+                            <option value="">Pilih produk dari Kelola Produk</option>
+                        ) : (
+                            <option value="">Barang lain (input manual)</option>
+                        )}
+                        {products.map((product) => (
+                            <option key={product.id} value={product.id}>
+                                {product.name} ({product.unit}) — Stok:{' '}
+                                {formatQuantity(productStocks[String(product.id)] ?? 0, product.unit)}
+                            </option>
+                        ))}
+                    </select>
+                    {selectedStock != null && (
+                        <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                            Stok saat ini:{' '}
+                            <span className={selectedStock <= 0 ? 'text-rose-600' : 'text-emerald-600'}>
+                                {formatQuantity(selectedStock, selectedProduct?.unit)}
+                            </span>
+                            {data.type === 'keluar' && (
+                                <span className="ml-2 text-xs font-normal text-slate-500">
+                                    (akan berkurang setelah disimpan)
+                                </span>
+                            )}
+                            {data.type === 'masuk' && (
+                                <span className="ml-2 text-xs font-normal text-slate-500">
+                                    (akan bertambah setelah disimpan)
+                                </span>
+                            )}
+                        </p>
+                    )}
+                    <p className="mt-1 text-xs text-slate-500">
+                        {isEdit
+                            ? 'Stok terhubung ke produk agar jumlah stok di kasir POS ikut terupdate.'
+                            : 'Wajib pilih produk yang sudah didaftarkan di Kelola Produk.'}
+                    </p>
+                    <InputError message={errors.product_id} />
+                </label>
+
                 <label>
                     <span className="mb-2 block text-sm font-bold">Nama Barang</span>
-                    <input className="input" value={data.item_name} onChange={(e) => setData('item_name', e.target.value)} />
+                    <input
+                        className="input"
+                        value={data.item_name}
+                        onChange={(e) => setData('item_name', e.target.value)}
+                        disabled={isLinkedProduct}
+                    />
                     <InputError message={errors.item_name} />
                 </label>
                 <div className="grid gap-4 md:grid-cols-2">
@@ -109,7 +215,13 @@ export default function StockForm({ movement, defaultType }: { movement?: any; d
                     </label>
                     <label>
                         <span className="mb-2 block text-sm font-bold">Satuan</span>
-                        <input className="input" value={data.unit} onChange={(e) => setData('unit', e.target.value)} placeholder="kg, liter, butir" />
+                        <input
+                            className="input"
+                            value={data.unit}
+                            onChange={(e) => setData('unit', e.target.value)}
+                            placeholder="kg, liter, butir"
+                            disabled={isLinkedProduct}
+                        />
                         <InputError message={errors.unit} />
                     </label>
                 </div>

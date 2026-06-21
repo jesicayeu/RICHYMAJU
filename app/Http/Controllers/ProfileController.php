@@ -58,8 +58,12 @@ class ProfileController extends Controller
                 $this->drive->delete($user->avatar_path);
                 $user->avatar_path = null;
             }
-        } catch (RuntimeException $e) {
-            return Redirect::route('profile.edit')->with('error', $e->getMessage());
+        } catch (\Throwable $e) {
+            $message = $e instanceof RuntimeException
+                ? $e->getMessage()
+                : 'Gagal menyimpan avatar ke Google Drive. Pastikan akun Google sudah terhubung dan coba lagi.';
+
+            return Redirect::route('profile.edit')->with('error', $message);
         }
 
         $user->save();

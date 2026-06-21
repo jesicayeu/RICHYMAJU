@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Message;
+use App\Models\MessageWhatsappDelivery;
 use App\Models\User;
 use App\Models\WhatsappActionTemplate;
 use App\Models\WhatsappChatId;
@@ -88,8 +90,12 @@ class WhatsappNotificationService
                         continue;
                     }
 
-                    $resolvedChatId = $this->waha->sendTextToPhone($config->session, $phone, $body);
-                    $contact->update(['chat_id' => $resolvedChatId]);
+                    $sendResult = $this->waha->sendTextToPhone($config->session, $phone, $body);
+                    $contact->update(['chat_id' => $sendResult['chatId']]);
+
+                    if ($actionType === 'kirim_chat' && $record instanceof Message) {
+                        MessageWhatsappDelivery::recordForMessage($record, $sendResult);
+                    }
                 } catch (RuntimeException $e) {
                     Log::warning('Gagal kirim WhatsApp notifikasi.', [
                         'contact_id' => $contact->id,

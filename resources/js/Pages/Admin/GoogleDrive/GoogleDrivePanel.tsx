@@ -1,9 +1,9 @@
 import FolderTab from '@/Pages/Admin/GoogleDrive/FolderTab';
 import SheetTab from '@/Pages/Admin/GoogleDrive/SheetTab';
 import PasswordInput from '@/Components/PasswordInput';
-import { router, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
 import { motion } from 'framer-motion';
-import { Link2, Unlink } from 'lucide-react';
+import { ExternalLink, Link2 } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 
 type Settings = {
@@ -24,6 +24,8 @@ type Folders = {
 };
 
 type Sheets = {
+    sales: string;
+    products: string;
     transactions: string;
     stocks: string;
     debts: string;
@@ -85,14 +87,6 @@ export default function GoogleDrivePanel({
     const connect = (e: FormEvent) => {
         e.preventDefault();
         form.post(route('admin.google-drive.connect'));
-    };
-
-    const disconnect = () => {
-        if (!confirm('Putus koneksi Google Drive? Upload file akan gagal sampai dihubungkan kembali.')) {
-            return;
-        }
-
-        router.post(route('admin.google-drive.disconnect'));
     };
 
     return (
@@ -180,16 +174,18 @@ export default function GoogleDrivePanel({
                                 placeholder="Masukkan client secret"
                             />
                         </div>
-                        <div className="flex flex-wrap gap-3 md:col-span-2">
+                        <div className="flex flex-wrap gap-2 md:col-span-2">
                             <button type="submit" className="btn-primary" disabled={form.processing}>
                                 <Link2 className="h-4 w-4" /> Connect
                             </button>
-                            {settings.connection_status === 'terhubung' ? (
-                                <button type="button" onClick={disconnect} className="btn-muted inline-flex items-center gap-2">
-                                    <Unlink className="h-4 w-4" />
-                                    Putus Koneksi
-                                </button>
-                            ) : null}
+                            <a
+                                href="https://console.cloud.google.com/apis/credentials"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn-muted"
+                            >
+                                <ExternalLink className="h-4 w-4" /> Open Config
+                            </a>
                         </div>
                     </form>
                 </motion.div>

@@ -14,6 +14,8 @@ const solidTones: Record<string, string> = {
     masuk: 'bg-[#1a3b2a] text-[#bbf7d0]',
     keluar: 'bg-[#3b1a1a] text-[#fecaca]',
     diproses: 'bg-amber-900/50 text-amber-200',
+    lunas: 'bg-[#1a3b2a] text-[#bbf7d0]',
+    belum_lunas: 'bg-amber-900/50 text-amber-200',
 };
 
 const tones: Record<string, string> = {
@@ -30,6 +32,8 @@ const tones: Record<string, string> = {
     masuk: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
     keluar: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
     diproses: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+    lunas: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+    belum_lunas: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
 };
 
 export default function Badge({

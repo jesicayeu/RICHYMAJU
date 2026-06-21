@@ -5,16 +5,38 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\GoogleDriveSetting;
 use App\Services\GoogleDriveService;
+use App\Services\GoogleSheetsSyncService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Inertia\Response;
 use RuntimeException;
+use Throwable;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class GoogleDriveController extends Controller
 {
+    /** @var array<string, string> */
+    private const FOLDER_MODULES = [
+        'transactions' => 'Transaksi',
+        'stocks' => 'Stok Barang',
+        'debts' => 'Utang',
+        'chat' => 'Chat',
+        'profile' => 'Profil',
+    ];
+
+    /** @var array<string, string> */
+    private const SHEET_MODULES = [
+        'sales' => 'Penjualan',
+        'products' => 'Kelola Produk',
+        'transactions' => 'Transaksi',
+        'stocks' => 'Stok Barang',
+        'debts' => 'Utang',
+    ];
+
     public function __construct(
         private GoogleDriveService $drive,
+        private GoogleSheetsSyncService $sheets,
     ) {}
 
     public function index(): RedirectResponse
@@ -46,6 +68,8 @@ class GoogleDriveController extends Controller
                 'profile' => $setting->folder_profile ?? '',
             ],
             'sheets' => [
+                'sales' => $setting->sheet_sales ?? '',
+                'products' => $setting->sheet_products ?? '',
                 'transactions' => $setting->sheet_transactions ?? '',
                 'stocks' => $setting->sheet_stocks ?? '',
                 'debts' => $setting->sheet_debts ?? '',
@@ -71,13 +95,110 @@ class GoogleDriveController extends Controller
             return back()->with('error', 'Client Secret wajib diisi.');
         }
 
-        $setting->save();
+        try {
+            $setting->save();
+            return Inertia::location($this->drive->authUrl());
+        } catch (Throwable $e) {
+            $message = $e instanceof RuntimeException ? $e->getMessage() : 'Gagal memulai koneksi Google Drive. Silakan coba lagi.';
+            return back()->with('error', $message);
+        }
+    }
+
+    public function browseFolder(string $module): Response|RedirectResponse
+    {
+        if (! array_key_exists($module, self::FOLDER_MODULES)) {
+            abort(404);
+        }
+
+        $folderId = GoogleDriveSetting::current()->folderIdFor($module);
+
+        if (! filled($folderId)) {
+            return redirect()
+                ->route('admin.settings.index', ['tab' => 'google-drive'])
+                ->with('error', 'Folder belum dikonfigurasi.');
+        }
+
+        $files = [];
+        $error = null;
 
         try {
-            return Inertia::location($this->drive->authUrl());
-        } catch (RuntimeException $e) {
-            return back()->with('error', $e->getMessage());
+            if (! $this->drive->isConnected()) {
+                throw new RuntimeException('Google Drive belum terhubung.');
+            }
+
+            $files = $this->drive->listFilesInFolder($folderId);
+        } catch (Throwable $e) {
+            $error = $e instanceof RuntimeException
+                ? $e->getMessage()
+                : 'Gagal memuat daftar file dari Google Drive.';
         }
+
+        return Inertia::render('Admin/GoogleDrive/FolderBrowse', [
+            'module' => $module,
+            'moduleLabel' => self::FOLDER_MODULES[$module],
+            'folderId' => $folderId,
+            'driveFolderUrl' => $this->drive->folderUrl($folderId),
+            'files' => $files,
+            'error' => $error,
+        ]);
+    }
+
+    public function browseSheet(string $module): Response|RedirectResponse
+    {
+        if (! array_key_exists($module, self::SHEET_MODULES)) {
+            abort(404);
+        }
+
+        $sheetRef = GoogleDriveSetting::current()->sheetIdFor($module);
+
+        if (! filled($sheetRef)) {
+            return redirect()
+                ->route('admin.settings.index', ['tab' => 'google-drive'])
+                ->with('error', 'Sheet belum dikonfigurasi.');
+        }
+
+        $headers = [];
+        $rows = [];
+        $error = null;
+
+        try {
+            if (! $this->drive->isConnected()) {
+                throw new RuntimeException('Google Drive belum terhubung.');
+            }
+
+            $preview = $this->sheets->previewModule($module);
+            $headers = $preview['headers'];
+            $rows = $preview['rows'];
+        } catch (Throwable $e) {
+            $error = $e instanceof RuntimeException
+                ? $e->getMessage()
+                : 'Gagal memuat pratinjau sheet.';
+        }
+
+        return Inertia::render('Admin/GoogleDrive/SheetBrowse', [
+            'module' => $module,
+            'moduleLabel' => self::SHEET_MODULES[$module],
+            'sheetRef' => $sheetRef,
+            'sheetUrl' => $this->sheetUrl($sheetRef),
+            'headers' => $headers,
+            'rows' => $rows,
+            'error' => $error,
+        ]);
+    }
+
+    private function sheetUrl(string $sheetRef): string
+    {
+        $trimmed = trim($sheetRef);
+
+        if ($trimmed === '') {
+            return '';
+        }
+
+        if (str_starts_with($trimmed, 'http')) {
+            return $trimmed;
+        }
+
+        return 'https://docs.google.com/spreadsheets/d/'.$trimmed;
     }
 
     public function updateFolders(Request $request): RedirectResponse
@@ -90,13 +211,17 @@ class GoogleDriveController extends Controller
             'folder_profile' => ['required', 'string', 'max:255'],
         ]);
 
-        GoogleDriveSetting::current()->update([
-            'folder_transactions' => $data['folder_transactions'],
-            'folder_stocks' => $data['folder_stocks'],
-            'folder_debts' => $data['folder_debts'],
-            'folder_chat' => $data['folder_chat'],
-            'folder_profile' => $data['folder_profile'],
-        ]);
+        try {
+            GoogleDriveSetting::current()->update([
+                'folder_transactions' => $data['folder_transactions'],
+                'folder_stocks' => $data['folder_stocks'],
+                'folder_debts' => $data['folder_debts'],
+                'folder_chat' => $data['folder_chat'],
+                'folder_profile' => $data['folder_profile'],
+            ]);
+        } catch (Throwable $e) {
+            return back()->with('error', 'Gagal menyimpan konfigurasi Folder Google Drive. Silakan coba lagi.');
+        }
 
         return back()->with('success', 'Folder Google Drive tersimpan.');
     }
@@ -104,16 +229,24 @@ class GoogleDriveController extends Controller
     public function updateSheets(Request $request): RedirectResponse
     {
         $data = $request->validate([
+            'sheet_sales' => ['required', 'string', 'max:500'],
+            'sheet_products' => ['required', 'string', 'max:500'],
             'sheet_transactions' => ['required', 'string', 'max:500'],
             'sheet_stocks' => ['required', 'string', 'max:500'],
             'sheet_debts' => ['required', 'string', 'max:500'],
         ]);
 
-        GoogleDriveSetting::current()->update([
-            'sheet_transactions' => $data['sheet_transactions'],
-            'sheet_stocks' => $data['sheet_stocks'],
-            'sheet_debts' => $data['sheet_debts'],
-        ]);
+        try {
+            GoogleDriveSetting::current()->update([
+                'sheet_sales' => $data['sheet_sales'],
+                'sheet_products' => $data['sheet_products'],
+                'sheet_transactions' => $data['sheet_transactions'],
+                'sheet_stocks' => $data['sheet_stocks'],
+                'sheet_debts' => $data['sheet_debts'],
+            ]);
+        } catch (Throwable $e) {
+            return back()->with('error', 'Gagal menyimpan konfigurasi Sheet Google Drive. Silakan coba lagi.');
+        }
 
         return back()->with('success', 'Sheet Google Sheets tersimpan.');
     }
@@ -130,8 +263,9 @@ class GoogleDriveController extends Controller
 
         try {
             $this->drive->handleCallback((string) $request->query('code'));
-        } catch (RuntimeException $e) {
-            return redirect()->route('admin.settings.index', ['tab' => 'google-drive'])->with('error', $e->getMessage());
+        } catch (Throwable $e) {
+            $message = $e instanceof RuntimeException ? $e->getMessage() : 'Gagal menyelesaikan proses koneksi Google Drive. Silakan coba lagi.';
+            return redirect()->route('admin.settings.index', ['tab' => 'google-drive'])->with('error', $message);
         }
 
         $email = GoogleDriveSetting::current()->connected_email;
@@ -144,7 +278,11 @@ class GoogleDriveController extends Controller
 
     public function disconnect(): RedirectResponse
     {
-        $this->drive->disconnect();
+        try {
+            $this->drive->disconnect();
+        } catch (Throwable) {
+            return back()->with('error', 'Gagal memutus koneksi Google Drive. Silakan coba lagi.');
+        }
 
         return back()->with('success', 'Google Drive telah diputus.');
     }

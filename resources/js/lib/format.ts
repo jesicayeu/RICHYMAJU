@@ -102,6 +102,24 @@ const stockStatusLabels: Record<string, string> = {
 
 export const humanStockStatus = (value?: string) => stockStatusLabels[value ?? ''] ?? humanStatus(value);
 
+const salePaymentStatusLabels: Record<string, string> = {
+    lunas: 'Lunas',
+    belum_lunas: 'Belum Lunas',
+};
+
+export const humanSalePaymentStatus = (value?: string) =>
+    salePaymentStatusLabels[value ?? ''] ?? humanStatus(value);
+
+const salePaymentMethodLabels: Record<string, string> = {
+    tunai: 'Tunai',
+    barcode: 'QRIS',
+    qris_dana: 'QRIS',
+    qris_gopay: 'QRIS',
+};
+
+export const humanSalePaymentMethod = (value?: string) =>
+    salePaymentMethodLabels[value ?? ''] ?? humanStatus(value);
+
 export const formatQuantity = (quantity: number | string, unit?: string) => {
     const formatted = new Intl.NumberFormat('id-ID', {
         maximumFractionDigits: 2,

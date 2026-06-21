@@ -11,13 +11,15 @@ export default function StatCard({
     value: string;
     subtitle?: string;
     icon: LucideIcon;
-    tone?: 'indigo' | 'emerald' | 'rose' | 'sky';
+    tone?: 'indigo' | 'emerald' | 'rose' | 'sky' | 'violet' | 'amber';
 }) {
     const colors = {
         indigo: 'from-indigo-600 to-violet-500',
         emerald: 'from-emerald-500 to-teal-400',
         rose: 'from-rose-500 to-orange-400',
         sky: 'from-sky-500 to-cyan-400',
+        violet: 'from-violet-600 to-purple-500',
+        amber: 'from-amber-500 to-orange-400',
     };
 
     return (

@@ -5,15 +5,26 @@ namespace App\Http\Controllers\Webhook;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\WhatsappWebhook;
+use App\Services\WhatsappIntegrationService;
+use App\Services\WhatsappWebhookHandler;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 
 class WahaWebhookController extends Controller
 {
-    public function __invoke(Request $request, User $user): Response
-    {
+    public function __invoke(
+        Request $request,
+        User $user,
+        WhatsappWebhookHandler $handler,
+        WhatsappIntegrationService $integration,
+    ): Response {
         $account = $user->whatsappAccount;
+
+        if (! $account) {
+            $integration->ensureWebhookRegistered();
+            $account = $user->fresh()?->whatsappAccount;
+        }
 
         if (! $account) {
             return response('Account not found', 404);
@@ -54,6 +65,16 @@ class WahaWebhookController extends Controller
             'event' => $request->input('event'),
             'session' => $request->input('session'),
         ]);
+
+        try {
+            $handler->handle($request);
+        } catch (\Throwable $e) {
+            Log::error('WAHA webhook handler gagal.', [
+                'user_id' => $user->id,
+                'event' => $request->input('event'),
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         return response('OK', 200);
     }

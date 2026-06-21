@@ -4,32 +4,29 @@ import { ExternalLink, Save } from 'lucide-react';
 import { FormEvent, useEffect } from 'react';
 
 type Sheets = {
+    sales: string;
+    products: string;
     transactions: string;
     stocks: string;
     debts: string;
 };
 
-function sheetUrl(sheetRef: string): string {
-    const trimmed = sheetRef.trim();
-    if (! trimmed) {
-        return '';
-    }
+type SheetModule = 'sales' | 'products' | 'transactions' | 'stocks' | 'debts';
 
-    if (trimmed.startsWith('http')) {
-        return trimmed;
-    }
-
-    return `https://docs.google.com/spreadsheets/d/${trimmed}`;
+function sheetBrowseUrl(module: SheetModule): string {
+    return route('admin.google-drive.sheets.browse', { module });
 }
 
 function SheetIdField({
     label,
+    module,
     value,
     onChange,
     placeholder,
     error,
 }: {
     label: string;
+    module: SheetModule;
     value: string;
     onChange: (value: string) => void;
     placeholder: string;
@@ -50,10 +47,10 @@ function SheetIdField({
                     required
                 />
                 <a
-                    href={canOpen ? sheetUrl(sheetRef) : undefined}
+                    href={canOpen ? sheetBrowseUrl(module) : undefined}
                     target="_blank"
                     rel="noopener noreferrer"
-                    aria-label={canOpen ? `Buka ${label} di Google Sheets` : `${label} belum diisi`}
+                    aria-label={canOpen ? `Buka ${label} dengan data terdekripsi` : `${label} belum diisi`}
                     className={`btn-muted grid h-[42px] w-[42px] shrink-0 place-items-center !rounded-2xl !p-0 ${
                         canOpen ? '' : 'pointer-events-none opacity-40'
                     }`}
@@ -69,6 +66,8 @@ function SheetIdField({
 
 export default function SheetTab({ sheets }: { sheets: Sheets }) {
     const form = useForm({
+        sheet_sales: sheets.sales,
+        sheet_products: sheets.products,
         sheet_transactions: sheets.transactions,
         sheet_stocks: sheets.stocks,
         sheet_debts: sheets.debts,
@@ -76,11 +75,13 @@ export default function SheetTab({ sheets }: { sheets: Sheets }) {
 
     useEffect(() => {
         form.setData({
+            sheet_sales: sheets.sales,
+            sheet_products: sheets.products,
             sheet_transactions: sheets.transactions,
             sheet_stocks: sheets.stocks,
             sheet_debts: sheets.debts,
         });
-    }, [sheets.transactions, sheets.stocks, sheets.debts]);
+    }, [sheets.sales, sheets.products, sheets.transactions, sheets.stocks, sheets.debts]);
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
@@ -92,17 +93,37 @@ export default function SheetTab({ sheets }: { sheets: Sheets }) {
             <h3 className="font-black">Sheet</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">
                 Masukkan ID sheet Google Sheets untuk setiap modul. Format: ID spreadsheet beserta gid tab sheet.
-                Data transaksi, stok, dan utang akan otomatis tersinkron ke sheet saat ditambah, diubah, atau dihapus.
-                Klik ikon link di samping input untuk membuka sheet di tab baru.
+                Data penjualan, produk, transaksi, stok, dan utang akan otomatis tersinkron ke sheet saat ditambah,
+                diubah, atau dihapus. Klik ikon link di samping input untuk membuka pratinjau data terdekripsi lewat
+                aplikasi web. Jika sheet dibuka langsung di Google Sheets, data tetap terenkripsi.
             </p>
             <p className="rounded-2xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
                 Pastikan <strong>Google Sheets API</strong> sudah diaktifkan di Google Cloud Console project yang sama
-                dengan OAuth Client ID. Setelah itu, admin perlu <strong>Putus Koneksi</strong> lalu{' '}
-                <strong>Connect</strong> ulang di tab Config agar izin Google Sheets aktif.
+                dengan OAuth Client ID. Setelah itu, admin perlu <strong>Connect</strong> ulang di tab Config agar izin
+                Google Sheets aktif.
             </p>
 
             <SheetIdField
+                label="ID Sheet Penjualan"
+                module="sales"
+                value={form.data.sheet_sales}
+                onChange={(v) => form.setData('sheet_sales', v)}
+                placeholder="1J8R7DZ817w9MLaWcDCn7Jx20TKyJj_krAoY8j1LZ5m0/edit?gid=0#gid=0"
+                error={form.errors.sheet_sales}
+            />
+
+            <SheetIdField
+                label="ID Sheet Kelola Produk"
+                module="products"
+                value={form.data.sheet_products}
+                onChange={(v) => form.setData('sheet_products', v)}
+                placeholder="1J8R7DZ817w9MLaWcDCn7Jx20TKyJj_krAoY8j1LZ5m0/edit?gid=0#gid=0"
+                error={form.errors.sheet_products}
+            />
+
+            <SheetIdField
                 label="ID Sheet Transaksi"
+                module="transactions"
                 value={form.data.sheet_transactions}
                 onChange={(v) => form.setData('sheet_transactions', v)}
                 placeholder="1J8R7DZ817w9MLaWcDCn7Jx20TKyJj_krAoY8j1LZ5m0/edit?gid=0#gid=0"
@@ -111,6 +132,7 @@ export default function SheetTab({ sheets }: { sheets: Sheets }) {
 
             <SheetIdField
                 label="ID Sheet Stok Barang"
+                module="stocks"
                 value={form.data.sheet_stocks}
                 onChange={(v) => form.setData('sheet_stocks', v)}
                 placeholder="1J8R7DZ817w9MLaWcDCn7Jx20TKyJj_krAoY8j1LZ5m0/edit?gid=728848999#gid=728848999"
@@ -119,6 +141,7 @@ export default function SheetTab({ sheets }: { sheets: Sheets }) {
 
             <SheetIdField
                 label="ID Sheet Utang"
+                module="debts"
                 value={form.data.sheet_debts}
                 onChange={(v) => form.setData('sheet_debts', v)}
                 placeholder="1J8R7DZ817w9MLaWcDCn7Jx20TKyJj_krAoY8j1LZ5m0/edit?gid=1109585085#gid=1109585085"

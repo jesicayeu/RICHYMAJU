@@ -1,26 +1,29 @@
 import AppLayout from '@/Layouts/AppLayout';
 import EncryptionPanel from '@/Pages/Admin/Encryption/EncryptionPanel';
 import GoogleDrivePanel from '@/Pages/Admin/GoogleDrive/GoogleDrivePanel';
+import PaymentPanel from '@/Pages/Admin/Payment/PaymentPanel';
 import WhatsAppPanel from '@/Pages/Admin/WhatsApp/WhatsAppPanel';
 import { PageProps } from '@/types';
 import { router, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
-import { Cloud, LockKeyhole, Phone } from 'lucide-react';
+import { Cloud, CreditCard, LockKeyhole, Phone } from 'lucide-react';
 import { ComponentProps, useEffect, useState } from 'react';
 
-const sections = ['whatsapp', 'google-drive', 'encryption'] as const;
+const sections = ['whatsapp', 'google-drive', 'encryption', 'payment'] as const;
 type Section = (typeof sections)[number];
 
 const sectionLabels: Record<Section, string> = {
     whatsapp: 'WhatsApp',
     'google-drive': 'Google Drive',
     encryption: 'Enkrip',
+    payment: 'Pembayaran',
 };
 
 const sectionIcons: Record<Section, typeof Phone> = {
     whatsapp: Phone,
     'google-drive': Cloud,
     encryption: LockKeyhole,
+    payment: CreditCard,
 };
 
 export default function SettingsIndex({
@@ -28,11 +31,13 @@ export default function SettingsIndex({
     whatsapp,
     googleDrive,
     encryption,
+    payment,
 }: {
     activeSection: Section;
     whatsapp: ComponentProps<typeof WhatsAppPanel>;
     googleDrive: ComponentProps<typeof GoogleDrivePanel>;
     encryption: ComponentProps<typeof EncryptionPanel>;
+    payment: ComponentProps<typeof PaymentPanel>;
 }) {
     const { flash } = usePage<PageProps>().props;
     const [section, setSection] = useState<Section>(activeSection);
@@ -43,8 +48,8 @@ export default function SettingsIndex({
 
     useEffect(() => {
         const tab = flash?.settings_tab;
-        if (tab && sections.includes(tab)) {
-            setSection(tab);
+        if (tab && sections.includes(tab as Section)) {
+            setSection(tab as Section);
         }
     }, [flash?.settings_tab]);
 
@@ -63,7 +68,7 @@ export default function SettingsIndex({
                 <motion.div className="glass-card p-6">
                     <h2 className="text-xl font-black">Pengaturan Sistem</h2>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Kelola integrasi WhatsApp, Google Drive, dan enkripsi data.
+                        Kelola integrasi WhatsApp, Google Drive, enkripsi, dan pembayaran QRIS.
                     </p>
                 </motion.div>
 
@@ -92,6 +97,7 @@ export default function SettingsIndex({
                 {section === 'whatsapp' && <WhatsAppPanel {...whatsapp} />}
                 {section === 'google-drive' && <GoogleDrivePanel {...googleDrive} />}
                 {section === 'encryption' && <EncryptionPanel {...encryption} />}
+                {section === 'payment' && <PaymentPanel {...payment} />}
             </motion.div>
         </AppLayout>
     );

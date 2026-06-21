@@ -13,13 +13,14 @@ class SettingsController extends Controller
         private WhatsAppController $whatsapp,
         private GoogleDriveController $googleDrive,
         private EncryptionController $encryption,
+        private PaymentSettingController $payment,
     ) {}
 
     public function index(Request $request): Response
     {
         $tab = $request->query('tab', 'whatsapp');
 
-        if (! in_array($tab, ['whatsapp', 'google-drive', 'encryption'], true)) {
+        if (! in_array($tab, ['whatsapp', 'google-drive', 'encryption', 'payment'], true)) {
             $tab = 'whatsapp';
         }
 
@@ -28,6 +29,7 @@ class SettingsController extends Controller
             'whatsapp' => $this->whatsapp->settingsProps(),
             'googleDrive' => $this->googleDrive->settingsProps(),
             'encryption' => $this->encryption->settingsProps(),
+            'payment' => $this->payment->settingsProps(),
         ]);
     }
 }

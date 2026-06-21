@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Debt;
 use App\Models\GoogleDriveSetting;
+use App\Models\Product;
+use App\Models\Sale;
 use App\Models\StockMovement;
 use App\Models\Transaction;
 use App\Models\User;
@@ -26,18 +28,28 @@ class GoogleSheetsSyncService
     public function __construct(
         private GoogleDriveService $drive,
         private EncryptionService $encryption,
+        private ProductStockService $stockService,
     ) {}
 
     public function upsert(Model $record): void
     {
-        try {
-            $this->syncModule($this->moduleFor($record));
-        } catch (Throwable $e) {
-            $this->logFailure('upsert', $record, $e);
-        }
+        $this->syncModule($this->moduleFor($record));
     }
 
     public function syncModule(string $module): void
+    {
+        try {
+            $this->performSyncModule($module);
+        } catch (Throwable $e) {
+            Log::warning('Google Sheets sync gagal.', [
+                'action' => 'syncModule',
+                'module' => $module,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function performSyncModule(string $module): void
     {
         if (! $this->drive->isConnected()) {
             Log::info('Google Sheets sync dilewati: Google belum terhubung.', compact('module'));
@@ -65,6 +77,7 @@ class GoogleSheetsSyncService
         $this->removeTables($sheets, $spreadsheetId, $sheetTitle);
 
         [$headers, $rows, $records] = $this->buildModuleSheet($module);
+        $encryptedRows = array_map(fn (array $row) => $this->normalizeRow($row), $rows);
         $this->ensureHeaders($sheets, $spreadsheetId, $sheetTitle, $headers);
 
         $oldRowCount = count(
@@ -79,19 +92,19 @@ class GoogleSheetsSyncService
 
         $this->resetSheetRows($module);
 
-        if ($rows === []) {
+        if ($encryptedRows === []) {
             $this->deleteExtraRows($sheets, $spreadsheetId, $gid, 1, $oldRowCount);
 
             return;
         }
 
         $lastColumn = $this->columnLetter(count($headers));
-        $lastRow = count($rows) + 1;
+        $lastRow = count($encryptedRows) + 1;
 
         $sheets->spreadsheets_values->update(
             $spreadsheetId,
             "{$sheetTitle}!A2:{$lastColumn}{$lastRow}",
-            new ValueRange(['values' => $rows]),
+            new ValueRange(['values' => $encryptedRows]),
             ['valueInputOption' => 'USER_ENTERED'],
         );
 
@@ -108,16 +121,99 @@ class GoogleSheetsSyncService
     }
 
     /**
+     * @return array{headers: list<string>, rows: list<list<string>>}
+     */
+    public function previewModule(string $module): array
+    {
+        [$headers, $rows] = $this->buildModuleSheet($module);
+
+        return [
+            'headers' => $headers,
+            'rows' => array_map(
+                fn (array $row) => array_map(
+                    fn ($value) => $value === null || $value === '' ? '' : (string) $value,
+                    $row,
+                ),
+                $rows,
+            ),
+        ];
+    }
+
+    /**
      * @return array{0: list<string>, 1: list<list<string|int|float>>, 2: Collection<int, Model>}
      */
     private function buildModuleSheet(string $module): array
     {
         return match ($module) {
+            'sales' => $this->buildSalesSheet(),
+            'products' => $this->buildProductsSheet(),
             'transactions' => $this->buildTransactionSheet(),
             'debts' => $this->buildDebtSheet(),
             'stocks' => $this->buildStockSheet(),
             default => [[], [], collect()],
         };
+    }
+
+    /**
+     * @return array{0: list<string>, 1: list<list<string|int|float>>, 2: Collection<int, Model>}
+     */
+    private function buildSalesSheet(): array
+    {
+        $headers = [
+            'Kasir',
+            'Kode',
+            'Total',
+            'Status Bayar',
+            'Metode Bayar',
+            'Detail Barang',
+            'Catatan',
+            'Waktu',
+            'Waktu Lunas',
+        ];
+
+        $records = Sale::query()->with(['user', 'items'])->orderBy('id')->get();
+        $rows = $records->map(fn (Sale $sale) => [
+            $this->userLabel($sale->user),
+            $sale->code,
+            $this->formatAmount($sale->total_amount),
+            $sale->payment_status,
+            $sale->payment_method ?? 'tunai',
+            $this->formatSaleItems($sale),
+            $sale->notes ?? '',
+            $this->formatDateTime($sale->occurred_at),
+            $this->formatDateTime($sale->paid_at),
+        ])->all();
+
+        return [$headers, $rows, $records];
+    }
+
+    /**
+     * @return array{0: list<string>, 1: list<list<string|int|float>>, 2: Collection<int, Model>}
+     */
+    private function buildProductsSheet(): array
+    {
+        $headers = [
+            'Barcode',
+            'Nama',
+            'Satuan',
+            'Harga Beli',
+            'Harga Jual',
+            'Stok',
+            'Status',
+        ];
+
+        $records = Product::query()->orderBy('name')->get();
+        $rows = $records->map(fn (Product $product) => [
+            $product->barcode,
+            $product->name,
+            $product->unit,
+            $this->formatAmount($product->buy_price ?? 0),
+            $this->formatAmount($product->sell_price),
+            (string) $this->stockService->availableStock($product),
+            $product->is_active ? 'aktif' : 'nonaktif',
+        ])->all();
+
+        return [$headers, $rows, $records];
     }
 
     /**
@@ -137,7 +233,7 @@ class GoogleSheetsSyncService
         ];
 
         $records = Transaction::query()->with('user')->orderBy('id')->get();
-        $rows = $records->map(fn (Transaction $transaction) => $this->normalizeRow([
+        $rows = $records->map(fn (Transaction $transaction) => [
             $this->userLabel($transaction->user),
             $transaction->type,
             $this->formatAmount($transaction->amount),
@@ -146,7 +242,7 @@ class GoogleSheetsSyncService
             $transaction->verification_status ?? 'menunggu',
             $this->formatDateTime($transaction->occurred_at),
             $this->evidenceLink($transaction->evidence_path),
-        ]))->all();
+        ])->all();
 
         return [$headers, $rows, $records];
     }
@@ -167,7 +263,7 @@ class GoogleSheetsSyncService
         ];
 
         $records = Debt::query()->with('user')->orderBy('id')->get();
-        $rows = $records->map(fn (Debt $debt) => $this->normalizeRow([
+        $rows = $records->map(fn (Debt $debt) => [
             $this->userLabel($debt->user),
             $debt->party_name,
             $debt->item_name,
@@ -175,7 +271,7 @@ class GoogleSheetsSyncService
             $debt->status,
             $this->formatDateTime($debt->occurred_at),
             $this->evidenceLink($debt->evidence_path),
-        ]))->all();
+        ])->all();
 
         return [$headers, $rows, $records];
     }
@@ -197,7 +293,7 @@ class GoogleSheetsSyncService
         ];
 
         $records = StockMovement::query()->with('user')->orderBy('id')->get();
-        $rows = $records->map(fn (StockMovement $movement) => $this->normalizeRow([
+        $rows = $records->map(fn (StockMovement $movement) => [
             $this->userLabel($movement->user),
             $movement->item_name,
             $movement->type,
@@ -206,7 +302,7 @@ class GoogleSheetsSyncService
             $movement->status,
             $movement->notes ?? '',
             $this->formatDateTime($movement->occurred_at),
-        ]))->all();
+        ])->all();
 
         return [$headers, $rows, $records];
     }
@@ -214,6 +310,8 @@ class GoogleSheetsSyncService
     private function moduleFor(Model $record): string
     {
         return match (true) {
+            $record instanceof Sale => 'sales',
+            $record instanceof Product => 'products',
             $record instanceof Transaction => 'transactions',
             $record instanceof Debt => 'debts',
             $record instanceof StockMovement => 'stocks',
@@ -224,6 +322,8 @@ class GoogleSheetsSyncService
     private function resetSheetRows(string $module): void
     {
         match ($module) {
+            'sales' => Sale::query()->update(['sheet_row' => null]),
+            'products' => Product::query()->update(['sheet_row' => null]),
             'transactions' => Transaction::query()->update(['sheet_row' => null]),
             'debts' => Debt::query()->update(['sheet_row' => null]),
             'stocks' => StockMovement::query()->update(['sheet_row' => null]),
@@ -394,6 +494,19 @@ class GoogleSheetsSyncService
         return $value->timezone('Asia/Jakarta')->format('d/m/Y H:i');
     }
 
+    private function formatSaleItems(Sale $sale): string
+    {
+        return $sale->items
+            ->map(function ($item) {
+                $qty = rtrim(rtrim(number_format((float) $item->quantity, 2, '.', ''), '0'), '.');
+                $price = number_format((int) $item->price, 0, ',', '.');
+                $subtotal = number_format((int) $item->subtotal, 0, ',', '.');
+
+                return "{$item->item_name} ({$qty} {$item->unit} @ Rp{$price}) = Rp{$subtotal}";
+            })
+            ->implode('; ');
+    }
+
     private function evidenceLink(?string $path): string
     {
         if (! $path) {
@@ -426,15 +539,5 @@ class GoogleSheetsSyncService
             : (string) $value;
 
         return $this->encryption->encryptText($plaintext);
-    }
-
-    private function logFailure(string $action, Model $record, Throwable $e): void
-    {
-        Log::warning('Google Sheets sync gagal.', [
-            'action' => $action,
-            'model' => $record::class,
-            'id' => $record->getKey(),
-            'message' => $e->getMessage(),
-        ]);
     }
 }

@@ -3,7 +3,7 @@ import AppLayout from '@/Layouts/AppLayout';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import { dateTime, formatQuantity, humanStockStatus, humanStockType, userDisplayName } from '@/lib/format';
 import { Link } from '@inertiajs/react';
-import { Edit, Trash2 } from 'lucide-react';
+import { Edit, ExternalLink, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 function DetailCard({ label, children }: { label: string; children: ReactNode }) {
@@ -15,7 +15,15 @@ function DetailCard({ label, children }: { label: string; children: ReactNode })
     );
 }
 
-export default function StockShow({ movement, isAdmin }: { movement: any; isAdmin: boolean }) {
+export default function StockShow({
+    movement,
+    isAdmin,
+    currentStock,
+}: {
+    movement: any;
+    isAdmin: boolean;
+    currentStock?: number | null;
+}) {
     const { requestDelete, deleteModal } = useConfirmDelete({
         buildRoute: (id) => route('stocks.destroy', id),
         title: 'Hapus Stok',
@@ -71,6 +79,25 @@ export default function StockShow({ movement, isAdmin }: { movement: any; isAdmi
                         </DetailCard>
                         <DetailCard label="Nama Barang">
                             <p className="detail-metric-value">{movement.item_name}</p>
+                            {movement.product && (
+                                <>
+                                    <p className="mt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+                                        Stok tersedia:{' '}
+                                        <span className={currentStock != null && currentStock <= 0 ? 'text-rose-600' : 'text-emerald-600'}>
+                                            {currentStock != null
+                                                ? formatQuantity(currentStock, movement.unit)
+                                                : '-'}
+                                        </span>
+                                    </p>
+                                    <Link
+                                        href={route('products.index')}
+                                        className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline"
+                                    >
+                                        <ExternalLink className="h-3.5 w-3.5" />
+                                        Terhubung ke produk penjualan
+                                    </Link>
+                                </>
+                            )}
                         </DetailCard>
                     </div>
 

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\EncryptionController;
 use App\Http\Controllers\Admin\GoogleDriveController;
+use App\Http\Controllers\Admin\PaymentSettingController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\WhatsAppController;
@@ -13,6 +14,8 @@ use App\Http\Controllers\DebtController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ProductController;
+use App\Http\Controllers\SaleController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Support\Facades\Route;
@@ -27,8 +30,19 @@ Route::get('/', function () {
 Route::post('/webhooks/waha/{user}', WahaWebhookController::class)->name('webhooks.waha');
 
 Route::middleware('auth')->group(function () {
-    Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::get('/dashboard', [DashboardController::class, '__invoke'])->name('dashboard');
+    Route::get('/dashboard-export.pdf', [DashboardController::class, 'export'])->name('dashboard.export');
     Route::get('/media', [MediaController::class, 'show'])->name('media.show');
+
+    Route::get('/sales/pos', [SaleController::class, 'pos'])->name('sales.pos');
+    Route::get('/sales/scanner-test', [SaleController::class, 'scannerTest'])->name('sales.scanner-test');
+    Route::get('/sales/scanner-setup', [SaleController::class, 'scannerSetup'])->name('sales.scanner-setup');
+    Route::resource('sales', SaleController::class)->except(['destroy']);
+    Route::post('/sales/{sale}/confirm-payment', [SaleController::class, 'confirmPayment'])->name('sales.confirm-payment');
+    Route::delete('/sales/{sale}', [SaleController::class, 'destroy'])->middleware('role:admin')->name('sales.destroy');
+
+    Route::get('/products/lookup/{barcode}', [ProductController::class, 'lookup'])->name('products.lookup');
+    Route::resource('products', ProductController::class)->except(['show', 'create', 'edit']);
 
     Route::resource('transactions', TransactionController::class)->except(['destroy']);
     Route::delete('/transactions/{transaction}', [TransactionController::class, 'destroy'])->middleware('role:admin')->name('transactions.destroy');
@@ -44,6 +58,7 @@ Route::middleware('auth')->group(function () {
 
     Route::resource('stocks', StockController::class)->except(['destroy']);
     Route::delete('/stocks/{stock}', [StockController::class, 'destroy'])->middleware('role:admin')->name('stocks.destroy');
+    Route::delete('/stocks/product/{product}/clear', [StockController::class, 'clearProductStock'])->middleware('role:admin')->name('stocks.clear-product');
     Route::get('/stocks-export.pdf', [StockController::class, 'export'])->middleware('role:admin')->name('stocks.export');
 
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
@@ -65,9 +80,12 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
         Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+        Route::post('/settings/payment', [PaymentSettingController::class, 'update'])->name('settings.payment');
 
         Route::get('/google-drive', [GoogleDriveController::class, 'index'])->name('google-drive.index');
         Route::post('/google-drive/connect', [GoogleDriveController::class, 'connect'])->name('google-drive.connect');
+        Route::get('/google-drive/folders/{module}', [GoogleDriveController::class, 'browseFolder'])->name('google-drive.folders.browse');
+        Route::get('/google-drive/sheets/{module}', [GoogleDriveController::class, 'browseSheet'])->name('google-drive.sheets.browse');
         Route::post('/google-drive/folders', [GoogleDriveController::class, 'updateFolders'])->name('google-drive.folders');
         Route::post('/google-drive/sheets', [GoogleDriveController::class, 'updateSheets'])->name('google-drive.sheets');
         Route::get('/google-drive/callback', [GoogleDriveController::class, 'callback'])->name('google-drive.callback');

@@ -17,6 +17,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -433,7 +434,13 @@ class TransactionController extends Controller
             return null;
         }
 
-        return $this->drive->upload($request->file('evidence'), $folder);
+        try {
+            return $this->drive->upload($request->file('evidence'), $folder);
+        } catch (\Throwable) {
+            throw ValidationException::withMessages([
+                'evidence' => 'Gagal menyimpan bukti ke Google Drive. Pastikan akun Google sudah terhubung dan ID folder yang dikonfigurasi benar.',
+            ]);
+        }
     }
 
     private function normalizeAmount(mixed $value): int|string

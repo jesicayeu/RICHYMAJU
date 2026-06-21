@@ -3,38 +3,101 @@
 namespace App\Http\Controllers;
 
 use App\Models\Debt;
+use App\Models\Product;
+use App\Models\Sale;
 use App\Models\StockMovement;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\EncryptedQuery;
+use App\Services\ProductStockService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Inertia\Inertia;
-use Inertia\Response;
+use Inertia\Response as InertiaResponse;
 
 class DashboardController extends Controller
 {
-    public function __invoke(Request $request): Response
+    public function __construct(
+        private ProductStockService $stockService,
+    ) {}
+
+    public function __invoke(Request $request): InertiaResponse
     {
         $user = $request->user();
-        $today = Carbon::today();
-        $baseTransactions = Transaction::query()->when(! $user->isAdmin(), fn ($query) => $query->where('user_id', $user->id));
-        $baseDebts = Debt::query()->when(! $user->isAdmin(), fn ($query) => $query->where('user_id', $user->id));
-        $baseStocks = StockMovement::query()->when(! $user->isAdmin(), fn ($query) => $query->where('user_id', $user->id));
+        $payload = $this->buildPayload($user);
 
-        $todayTransactions = (clone $baseTransactions)->whereDate('occurred_at', $today);
-        $income = (int) EncryptedQuery::sum($todayTransactions, 'amount', fn (Transaction $t) => $t->type === 'pemasukan');
+        return Inertia::render($user->isAdmin() ? 'Dashboard/Admin' : 'Dashboard/Kasir', $payload);
+    }
+
+    public function export(Request $request): Response
+    {
+        $user = $request->user();
+        $payload = $this->buildPayload($user);
+        Carbon::setLocale('id');
+
+        $period = $request->input('period', 'today');
+        $periodLabel = match ($period) {
+            '7d' => '7 Hari Terakhir',
+            '30d' => '30 Hari Terakhir',
+            default => 'Hari Ini ('.Carbon::today()->translatedFormat('d F Y').')',
+        };
+
+        $summary = $payload['summary'];
+
+        return Pdf::loadView('pdf.dashboard-summary', [
+            'stats' => $payload['stats'],
+            'summary' => $summary,
+            'recentSales' => $payload['recentSales'],
+            'recentTransactions' => $payload['recentTransactions'],
+            'recentStocks' => $payload['recentStocks'],
+            'recentDebts' => $payload['recentDebts'],
+            'periodLabel' => $periodLabel,
+            'printedBy' => $user->display_name ?: $user->name,
+            'isAdmin' => $user->isAdmin(),
+            'hasPenjualanModule' => $summary['penjualan']['total'] > 0
+                || $summary['penjualan']['count'] > 0
+                || $summary['penjualan']['today'] > 0,
+            'hasTransaksiModule' => $summary['transaksi']['pemasukan'] > 0
+                || $summary['transaksi']['pengeluaran'] > 0
+                || $summary['transaksi']['count'] > 0,
+            'hasStokModule' => $summary['stok']['masuk'] > 0 || $summary['stok']['keluar'] > 0,
+            'hasUtangModule' => $summary['utang']['belum_selesai'] > 0
+                || $summary['utang']['sudah_selesai'] > 0
+                || $summary['utang']['count'] > 0,
+        ])->download('laporan-dashboard-'.now()->format('Y-m-d-His').'.pdf');
+    }
+
+    private function buildPayload(User $user): array
+    {
+        $today = Carbon::today();
+        $scoped = $this->scopedQueries($user);
+
+        $todayTransactions = (clone $scoped['transactions'])->whereDate('occurred_at', $today);
+        $income = (int) EncryptedQuery::sum($todayTransactions, 'amount', fn (Transaction $t) => $t->type === 'pemasukan' && ! $t->sale_id);
         $expense = (int) EncryptedQuery::sum($todayTransactions, 'amount', fn (Transaction $t) => $t->type === 'pengeluaran');
 
-        $chart = collect(range(6, 0))->map(function (int $days) use ($baseTransactions) {
+        $todaySales = (clone $scoped['sales'])->whereDate('occurred_at', $today);
+        $paidTodaySales = (clone $todaySales)->get()->where('payment_status', 'lunas');
+        $salesToday = (int) $paidTodaySales->sum('total_amount');
+        $salesCountToday = $paidTodaySales->count();
+
+        $products = Product::query()->where('is_active', true)->get();
+        $stockMap = $this->stockService->stockMapForProducts($products);
+        $lowStockCount = collect($stockMap)->filter(fn (float $qty) => $qty > 0 && $qty <= 5)->count();
+
+        $chart = collect(range(6, 0))->map(function (int $days) use ($scoped) {
             $date = Carbon::today()->subDays($days);
-            $dayQuery = (clone $baseTransactions)->whereDate('occurred_at', $date);
+            $dayTransactions = (clone $scoped['transactions'])->whereDate('occurred_at', $date);
+            $daySales = (clone $scoped['sales'])->whereDate('occurred_at', $date)->get()->where('payment_status', 'lunas');
 
             return [
                 'date' => $date->format('d M'),
-                'pemasukan' => (int) EncryptedQuery::sum($dayQuery, 'amount', fn (Transaction $t) => $t->type === 'pemasukan'),
-                'pengeluaran' => (int) EncryptedQuery::sum($dayQuery, 'amount', fn (Transaction $t) => $t->type === 'pengeluaran'),
+                'pemasukan' => (int) EncryptedQuery::sum($dayTransactions, 'amount', fn (Transaction $t) => $t->type === 'pemasukan' && ! $t->sale_id),
+                'pengeluaran' => (int) EncryptedQuery::sum($dayTransactions, 'amount', fn (Transaction $t) => $t->type === 'pengeluaran'),
+                'penjualan' => (int) $daySales->sum('total_amount'),
             ];
         })->values();
 
@@ -42,25 +105,69 @@ class DashboardController extends Controller
             'stats' => [
                 'incomeToday' => $income,
                 'expenseToday' => $expense,
-                'profitToday' => $income - $expense,
-                'debtOpen' => (int) EncryptedQuery::sum($baseDebts, 'amount', fn (Debt $debt) => $debt->status === 'belum_selesai'),
-                'pendingTransactions' => EncryptedQuery::countWhere(Transaction::query(), 'verification_status', 'menunggu'),
-                'pendingDebts' => EncryptedQuery::countWhere(Debt::query(), 'verification_status', 'menunggu'),
+                'salesToday' => $salesToday,
+                'salesCountToday' => $salesCountToday,
+                'totalIncomeToday' => $income + $salesToday,
+                'profitToday' => ($income + $salesToday) - $expense,
+                'debtOpen' => (int) EncryptedQuery::sum($scoped['debts'], 'amount', fn (Debt $debt) => $debt->status === 'belum_selesai'),
+                'pendingTransactions' => EncryptedQuery::countWhere(clone $scoped['transactions'], 'verification_status', 'menunggu'),
+                'pendingDebts' => EncryptedQuery::countWhere(clone $scoped['debts'], 'verification_status', 'menunggu'),
                 'activeCashiers' => User::where('role', 'kasir')->where('status', 'aktif')->count(),
+                'productCount' => $products->count(),
+                'lowStockCount' => $lowStockCount,
+            ],
+            'summary' => [
+                'penjualan' => [
+                    'total' => (int) (clone $scoped['sales'])->get()->where('payment_status', 'lunas')->sum('total_amount'),
+                    'count' => (clone $scoped['sales'])->get()->where('payment_status', 'lunas')->count(),
+                    'today' => $salesToday,
+                ],
+                'transaksi' => [
+                    'pemasukan' => (int) EncryptedQuery::sum(clone $scoped['transactions'], 'amount', fn (Transaction $t) => $t->type === 'pemasukan' && ! $t->sale_id),
+                    'pengeluaran' => (int) EncryptedQuery::sum(clone $scoped['transactions'], 'amount', fn (Transaction $t) => $t->type === 'pengeluaran'),
+                    'count' => (clone $scoped['transactions'])->count(),
+                ],
+                'stok' => [
+                    'masuk' => EncryptedQuery::countWhere(clone $scoped['stocks'], 'type', 'masuk'),
+                    'keluar' => EncryptedQuery::countWhere(clone $scoped['stocks'], 'type', 'keluar'),
+                    'produk_aktif' => $products->count(),
+                    'stok_rendah' => $lowStockCount,
+                ],
+                'utang' => [
+                    'belum_selesai' => (int) EncryptedQuery::sum($scoped['debts'], 'amount', fn (Debt $debt) => $debt->status === 'belum_selesai'),
+                    'sudah_selesai' => (int) EncryptedQuery::sum($scoped['debts'], 'amount', fn (Debt $debt) => $debt->status === 'sudah_selesai'),
+                    'count' => (clone $scoped['debts'])->count(),
+                ],
             ],
             'chart' => $chart,
-            'recentTransactions' => (clone $baseTransactions)->with('user')->latest('occurred_at')->limit(5)->get(),
-            'recentStocks' => (clone $baseStocks)->with('user')->latest('occurred_at')->limit(5)->get(),
-            'recentDebts' => (clone $baseDebts)->with('user')->latest('occurred_at')->limit(5)->get(),
+            'recentSales' => (clone $scoped['sales'])->with('user')->latest('occurred_at')->limit(5)->get(),
+            'recentTransactions' => (clone $scoped['transactions'])->with('user')->latest('occurred_at')->limit(5)->get(),
+            'recentStocks' => (clone $scoped['stocks'])->with('user')->latest('occurred_at')->limit(5)->get(),
+            'recentDebts' => (clone $scoped['debts'])->with('user')->latest('occurred_at')->limit(5)->get(),
             'notifications' => $user->notifications()->latest()->limit(8)->get(),
         ];
 
         if ($user->isAdmin()) {
             $payload['stockChart'] = $this->buildStockPieChart(StockMovement::query());
-            $payload['chartDebt'] = $this->buildDebtChart(clone $baseDebts, null, '1w');
+            $payload['chartDebt'] = $this->buildDebtChart(clone $scoped['debts'], null, '1w');
         }
 
-        return Inertia::render($user->isAdmin() ? 'Dashboard/Admin' : 'Dashboard/Kasir', $payload);
+        return $payload;
+    }
+
+    /**
+     * @return array{sales: Builder, transactions: Builder, stocks: Builder, debts: Builder}
+     */
+    private function scopedQueries(User $user): array
+    {
+        $scope = fn (Builder $query) => $query->when(! $user->isAdmin(), fn ($q) => $q->where('user_id', $user->id));
+
+        return [
+            'sales' => $scope(Sale::query()),
+            'transactions' => $scope(Transaction::query()),
+            'stocks' => $scope(StockMovement::query()),
+            'debts' => $scope(Debt::query()),
+        ];
     }
 
     private function buildStockPieChart(Builder $query): array

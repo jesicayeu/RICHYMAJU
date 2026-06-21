@@ -186,6 +186,14 @@ body::-webkit-scrollbar {
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
     }
 
+    .filter-bar--products {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto;
+    }
+
+    .filter-bar--products-kasir {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+    }
+
     .filter-bar__search {
         @apply relative;
     }
@@ -217,7 +225,9 @@ body::-webkit-scrollbar {
         .filter-bar--stocks,
         .filter-bar--stocks-simple,
         .filter-bar--stocks-kasir,
-        .filter-bar--stocks-kasir-simple {
+        .filter-bar--stocks-kasir-simple,
+        .filter-bar--products,
+        .filter-bar--products-kasir {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
@@ -538,6 +548,68 @@ body::-webkit-scrollbar {
     }
 
     .data-table--stocks .col-actions .table-action-btn {
+        @apply inline-flex shrink-0;
+    }
+
+    .data-table--products col:nth-child(1) {
+        width: 16%;
+    }
+
+    .data-table--products col:nth-child(2) {
+        width: 28%;
+    }
+
+    .data-table--products col:nth-child(3) {
+        width: 16%;
+    }
+
+    .data-table--products col:nth-child(4) {
+        width: 14%;
+    }
+
+    .data-table--products col:nth-child(5) {
+        width: 26%;
+    }
+
+    .data-table--products th,
+    .data-table--products td {
+        @apply px-2 sm:px-3;
+    }
+
+    .data-table--products .col-tight:not(.col-actions) {
+        @apply text-center;
+    }
+
+    .data-table--products .col-tight:not(.col-actions) > span,
+    .data-table--products .col-tight:not(.col-actions) > a:not(.table-action-btn) {
+        @apply mx-auto inline-flex max-w-full;
+    }
+
+    .data-table--products .col-money {
+        @apply text-right tabular-nums;
+    }
+
+    .data-table--products tbody .col-money {
+        @apply font-semibold;
+    }
+
+    .data-table--products .col-qty {
+        @apply text-right tabular-nums;
+    }
+
+    .data-table--products tbody .col-qty {
+        @apply font-semibold;
+    }
+
+    .data-table--products .col-actions {
+        @apply text-right;
+    }
+
+    .data-table--products .col-actions .table-actions {
+        @apply flex max-w-full flex-wrap items-center justify-end gap-1;
+    }
+
+    .data-table--products .col-actions .table-action-btn {
         @apply inline-flex shrink-0;
     }
 }

@@ -6,6 +6,7 @@ import { markPresenceOffline } from '@/lib/presence';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import {
+    Barcode,
     LayoutDashboard,
     LogOut,
     Menu,
@@ -14,6 +15,7 @@ import {
     Package,
     Receipt,
     Settings,
+    ShoppingCart,
     Sun,
     UserCircle,
     Users,
@@ -33,6 +35,8 @@ type NavItem = {
 
 const navItems: NavItem[] = [
     { href: route('dashboard'), label: 'Dashboard', icon: LayoutDashboard },
+    { href: route('sales.pos'), label: 'Penjualan', icon: ShoppingCart },
+    { href: route('products.index'), label: 'Kelola Produk', icon: Barcode },
     { href: route('transactions.index'), label: 'Transaksi', icon: Receipt },
     { href: route('stocks.index'), label: 'Stok Barang', icon: Package },
     { href: route('debts.index'), label: 'Utang', icon: Wallet },
@@ -122,9 +126,9 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
     }, [mobileMenuOpen, isMobile, isChatPage]);
 
     const visibleNav = navItems.filter((item) => !item.adminOnly || auth.user.role === 'admin');
-    const mobileBottomNav = visibleNav.filter((item) =>
-        ['Dashboard', 'Transaksi', 'Stok Barang', 'Utang'].includes(item.label),
-    );
+    const primaryNavLabels = ['Dashboard', 'Penjualan', 'Kelola Produk', 'Transaksi', 'Stok Barang', 'Utang'];
+    const primaryNav = visibleNav.filter((item) => primaryNavLabels.includes(item.label));
+    const mobileBottomNav = primaryNav;
 
     const isNavActive = (href: string) =>
         window.location.pathname.startsWith(new URL(href, window.location.origin).pathname);
@@ -213,12 +217,14 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                     <div className="flex items-center justify-between gap-4">
                         <div className="flex min-w-0 items-center gap-3">
                             {isMobile && (
-                                <div
+                                <button
+                                    type="button"
+                                    onClick={() => setMobileMenuOpen(true)}
                                     className="mobile-menu-btn grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-brand-logo text-sm font-black text-white shadow-brand"
-                                    aria-label="Richy Maju"
+                                    aria-label="Buka menu"
                                 >
                                     RM
-                                </div>
+                                </button>
                             )}
                             <div className="min-w-0">
                                 <p className={`text-xs font-semibold uppercase tracking-[0.3em] ${brand.label}`}>
@@ -262,6 +268,34 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                             </button>
                         </div>
                     </div>
+
+                    {isMobile && (
+                        <nav
+                            className="scrollbar-hidden -mx-4 mt-3 flex gap-2 overflow-x-auto border-t border-slate-100 px-4 pt-3 dark:border-slate-800 sm:-mx-8 sm:px-8"
+                            aria-label="Navigasi halaman"
+                        >
+                            {primaryNav.map((item) => {
+                                const Icon = item.icon;
+                                const active = isNavActive(item.href);
+
+                                return (
+                                    <Link
+                                        key={item.label}
+                                        href={item.href}
+                                        onClick={closeMobileMenu}
+                                        className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition sm:text-sm ${
+                                            active
+                                                ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25 dark:from-indigo-600 dark:to-indigo-600'
+                                                : brand.navIdle
+                                        }`}
+                                    >
+                                        <Icon className="h-4 w-4 shrink-0" />
+                                        <span>{item.label}</span>
+                                    </Link>
+                                );
+                            })}
+                        </nav>
+                    )}
                 </header>
 
                 <motion.section
@@ -286,7 +320,7 @@ export default function AppLayout({ title, children }: PropsWithChildren<{ title
                     className="mobile-bottom-nav surface-panel fixed inset-x-0 bottom-0 z-50 border-t"
                     aria-label="Navigasi utama"
                 >
-                    <div className="grid grid-cols-5 gap-1 px-2 py-2">
+                    <div className="grid grid-cols-6 gap-1 px-2 py-2">
                         {mobileBottomNav.map((item) => {
                             const Icon = item.icon;
                             const active = isNavActive(item.href);

@@ -9,6 +9,7 @@ use App\Models\WhatsappChatId;
 use App\Models\WhatsappConfig;
 use App\Models\WhatsappSetting;
 use App\Services\WahaService;
+use App\Services\WhatsappIntegrationService;
 use App\Support\WhatsappChatIdFormatter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -20,6 +21,7 @@ class WhatsAppController extends Controller
 {
     public function __construct(
         private WahaService $waha,
+        private WhatsappIntegrationService $integration,
     ) {}
 
     public function index(): RedirectResponse
@@ -167,18 +169,18 @@ class WhatsAppController extends Controller
         try {
             $this->waha->useSettings($settings);
 
-            $resolvedChatId = $this->waha->sendTextToPhone(
+            $sendResult = $this->waha->sendTextToPhone(
                 $config->session,
                 $phone,
                 $data['message'],
             );
 
-            $contact->update(['chat_id' => $resolvedChatId]);
+            $contact->update(['chat_id' => $sendResult['chatId']]);
 
             return response()->json([
                 'ok' => true,
                 'message' => 'Pesan tes berhasil dikirim ke '.$phone.'.',
-                'chat_id' => $resolvedChatId,
+                'chat_id' => $sendResult['chatId'],
             ]);
         } catch (RuntimeException $e) {
             return response()->json([
@@ -213,6 +215,13 @@ class WhatsAppController extends Controller
             $settings->connection_status = 'terhubung';
             $settings->last_checked_at = now();
             $settings->save();
+
+            $owner = $request->user();
+            if ($owner) {
+                $account = $this->integration->ensureAccount($owner, $data['session']);
+                $this->integration->ensureRevokeWebhook($account);
+                $this->waha->useSettings($settings)->syncWebhooksToSession($account);
+            }
 
             return back()->with('success', 'Koneksi WAHA berhasil.');
         } catch (RuntimeException $e) {

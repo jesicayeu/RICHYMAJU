@@ -41,10 +41,13 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "framer-motion": "^12.38.0",
+        "hls.js": "^1.6.16",
+        "html5-qrcode": "^2.3.8",
         "laravel-echo": "^2.3.4",
         "lucide-react": "^1.14.0",
         "pusher-js": "^8.5.0",
         "react-is": "^19.2.6",
+        "react-qr-code": "^2.2.0",
         "recharts": "^3.8.1",
         "sonner": "^2.0.7",
         "tailwind-merge": "^3.6.0"

@@ -89,25 +89,40 @@ class WahaService
         return $response->json();
     }
 
-    public function ensureSessionWorking(string $sessionName): void
+    public function ensureSessionWorking(string $sessionName, int $maxAttempts = 8): void
     {
-        $session = $this->getSession($sessionName);
+        $lastStatus = null;
 
-        if (! $session) {
-            throw new RuntimeException("Session WhatsApp \"{$sessionName}\" tidak ditemukan.");
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $session = $this->getSession($sessionName);
+
+            if (! $session) {
+                throw new RuntimeException("Session WhatsApp \"{$sessionName}\" tidak ditemukan.");
+            }
+
+            $status = $session['status'] ?? null;
+            $lastStatus = $status;
+
+            if ($status === 'WORKING') {
+                return;
+            }
+
+            if ($status === 'STARTING' && $attempt < $maxAttempts) {
+                usleep(500_000);
+
+                continue;
+            }
+
+            break;
         }
 
-        $status = $session['status'] ?? null;
-
-        if ($status !== 'WORKING') {
-            throw new RuntimeException(match ($status) {
-                'SCAN_QR_CODE' => 'WhatsApp perlu scan QR di dashboard WAHA.',
-                'FAILED' => 'Session WhatsApp gagal. Mulai ulang session di dashboard WAHA.',
-                'STARTING' => 'Session WhatsApp masih menyala. Tunggu sebentar lalu coba lagi.',
-                'STOPPED' => 'Session WhatsApp berhenti. Mulai session di dashboard WAHA.',
-                default => 'Session WhatsApp tidak aktif (status: '.($status ?? 'tidak diketahui').').',
-            });
-        }
+        throw new RuntimeException(match ($lastStatus) {
+            'SCAN_QR_CODE' => 'WhatsApp perlu scan QR di dashboard WAHA.',
+            'FAILED' => 'Session WhatsApp gagal. Mulai ulang session di dashboard WAHA.',
+            'STARTING' => 'Session WhatsApp masih menyala. Tunggu sebentar lalu coba lagi.',
+            'STOPPED' => 'Session WhatsApp berhenti. Mulai session di dashboard WAHA.',
+            default => 'Session WhatsApp tidak aktif (status: '.($lastStatus ?? 'tidak diketahui').').',
+        });
     }
 
     public function phoneToInternationalDigits(?string $phone): string
@@ -251,12 +266,13 @@ class WahaService
 
     public function sendText(string $sessionName, string $chatId, string $text): array
     {
-        $resolvedChatId = $this->sendTextToChat($sessionName, $chatId, $text);
-
-        return ['chatId' => $resolvedChatId];
+        return $this->sendTextToChat($sessionName, $chatId, $text);
     }
 
-    public function sendTextToPhone(string $sessionName, ?string $phone, string $text): string
+    /**
+     * @return array{chatId: string, messageId: string|null, messageIdSerialized: string|null}
+     */
+    public function sendTextToPhone(string $sessionName, ?string $phone, string $text): array
     {
         $this->ensureSessionWorking($sessionName);
         $resolvedChatId = $this->resolveChatIdFromPhone($sessionName, $phone);
@@ -268,10 +284,16 @@ class WahaService
         ]);
         $this->ensureSuccess($response);
 
-        return $resolvedChatId;
+        return array_merge(
+            ['chatId' => $resolvedChatId],
+            $this->extractMessageIdsFromSendResponse($response->json()),
+        );
     }
 
-    public function sendTextToChat(string $sessionName, string $chatId, string $text, ?string $phone = null): string
+    /**
+     * @return array{chatId: string, messageId: string|null, messageIdSerialized: string|null}
+     */
+    public function sendTextToChat(string $sessionName, string $chatId, string $text, ?string $phone = null): array
     {
         if ($phone !== null) {
             return $this->sendTextToPhone($sessionName, $phone, $text);
@@ -286,7 +308,41 @@ class WahaService
         ]);
         $this->ensureSuccess($response);
 
-        return $chatId;
+        return array_merge(
+            ['chatId' => $chatId],
+            $this->extractMessageIdsFromSendResponse($response->json()),
+        );
+    }
+
+    /**
+     * @return array{messageId: string|null, messageIdSerialized: string|null}
+     */
+    public function extractMessageIdsFromSendResponse(mixed $response): array
+    {
+        if (! is_array($response)) {
+            return ['messageId' => null, 'messageIdSerialized' => null];
+        }
+
+        $idObject = $response['id'] ?? $response['_data']['id'] ?? null;
+
+        if (! is_array($idObject)) {
+            return ['messageId' => null, 'messageIdSerialized' => null];
+        }
+
+        $serialized = is_string($idObject['_serialized'] ?? null) ? $idObject['_serialized'] : null;
+        $shortId = is_string($idObject['id'] ?? null) ? $idObject['id'] : null;
+
+        if ($shortId === null && $serialized !== null) {
+            $parts = explode('_', $serialized);
+            if (count($parts) >= 3) {
+                $shortId = $parts[count($parts) - 2] ?: null;
+            }
+        }
+
+        return [
+            'messageId' => $shortId,
+            'messageIdSerialized' => $serialized,
+        ];
     }
 
     public function mapWahaStatus(?string $wahaStatus): string
@@ -334,9 +390,45 @@ class WahaService
             ->values()
             ->all();
 
+        $session = $this->getSession($account->waha_session_name);
+        $existing = $session['config']['webhooks'] ?? [];
+
+        if ($this->webhookConfigsEqual($existing, $webhooks)) {
+            return;
+        }
+
         $this->updateSession($account->waha_session_name, [
             'webhooks' => $webhooks,
         ]);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $left
+     * @param  list<array<string, mixed>>  $right
+     */
+    private function webhookConfigsEqual(array $left, array $right): bool
+    {
+        return json_encode($this->normalizeWebhookConfigs($left))
+            === json_encode($this->normalizeWebhookConfigs($right));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $configs
+     * @return list<array<string, mixed>>
+     */
+    private function normalizeWebhookConfigs(array $configs): array
+    {
+        return collect($configs)
+            ->map(function (array $config) {
+                $events = collect($config['events'] ?? [])->sort()->values()->all();
+                ksort($config);
+                $config['events'] = $events;
+
+                return $config;
+            })
+            ->sortBy('url')
+            ->values()
+            ->all();
     }
 
     public function ensureSession(WhatsappAccount $account): void
