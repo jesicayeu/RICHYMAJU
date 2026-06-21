@@ -52,9 +52,6 @@ function ProductStockSummary({ products, isAdmin = false }: { products: ProductO
         <div className="glass-card mb-6 min-w-0 overflow-hidden">
             <div className="border-b border-slate-100 p-4 dark:border-slate-800 sm:p-6">
                 <h2 className="text-lg font-black">Stok Produk Saat Ini</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                    Angka stok otomatis terupdate dari barang masuk, penjualan POS, dan keluar manual.
-                </p>
             </div>
             <div className="data-table-wrap">
                 <table className="data-table w-full text-sm">

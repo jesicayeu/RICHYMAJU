@@ -120,6 +120,13 @@ const salePaymentMethodLabels: Record<string, string> = {
 export const humanSalePaymentMethod = (value?: string) =>
     salePaymentMethodLabels[value ?? ''] ?? humanStatus(value);
 
+/** Hilangkan kode referensi SLS dari keterangan penjualan POS. */
+export const cleanPosDescription = (value?: string | null) =>
+    (value ?? '')
+        .replace(/\s*SLS-\d{8}-[A-Z0-9]+\s*/gi, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
 export const formatQuantity = (quantity: number | string, unit?: string) => {
     const formatted = new Intl.NumberFormat('id-ID', {
         maximumFractionDigits: 2,

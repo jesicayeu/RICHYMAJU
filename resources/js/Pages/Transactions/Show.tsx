@@ -8,6 +8,7 @@ import {
     isPendingVerification,
     rupiah,
     userDisplayName,
+    cleanPosDescription,
 } from '@/lib/format';
 import { Link, router, useForm } from '@inertiajs/react';
 import { ArrowLeft, CheckCircle2, Edit, ShieldCheck, Trash2 } from 'lucide-react';
@@ -50,7 +51,7 @@ export default function TransactionShow({ transaction, isAdmin }: any) {
                         </div>
                         <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900 md:col-span-3">
                             <div className="text-sm text-slate-500">Keterangan</div>
-                            <div className="mt-1 text-xl font-black">{transaction.description}</div>
+                            <div className="mt-1 text-xl font-black">{cleanPosDescription(transaction.description) || '-'}</div>
                         </div>
                     </div>
                     {transaction.verifier && (

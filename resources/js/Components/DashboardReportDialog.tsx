@@ -7,6 +7,7 @@ import {
     humanStockType,
     rupiah,
     userDisplayName,
+    cleanPosDescription,
 } from '@/lib/format';
 import { usePage } from '@inertiajs/react';
 import {
@@ -158,7 +159,7 @@ export default function DashboardReportDialog({
     };
 
     return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-slate-900/60 p-4 backdrop-blur-sm">
             <div className="glass-card flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden">
                 <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-5 dark:border-slate-800 sm:p-6">
                     <div className="flex items-start gap-3">
@@ -175,7 +176,7 @@ export default function DashboardReportDialog({
                     </button>
                 </div>
 
-                <div className="flex-1 space-y-5 overflow-y-auto p-5 sm:p-6">
+                <div className="scrollbar-hidden flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 sm:p-6">
                     <div>
                         <h4 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Rincian Keuangan Hari Ini</h4>
                         <div className="grid gap-3 sm:grid-cols-2">
@@ -266,8 +267,12 @@ export default function DashboardReportDialog({
                                         {recentSales.map((sale) => (
                                             <ReportRow
                                                 key={sale.id}
-                                                title={sale.code}
-                                                subtitle={`${rupiah(sale.total_amount)} · ${dateTime(sale.occurred_at)}`}
+                                                title={isAdmin ? userDisplayName(sale.user) : rupiah(sale.total_amount)}
+                                                subtitle={
+                                                    isAdmin
+                                                        ? `${rupiah(sale.total_amount)} · ${dateTime(sale.occurred_at)}`
+                                                        : dateTime(sale.occurred_at)
+                                                }
                                                 badge={sale.payment_status}
                                             />
                                         ))}
@@ -279,7 +284,11 @@ export default function DashboardReportDialog({
                                         {recentTransactions.map((trx) => (
                                             <ReportRow
                                                 key={trx.id}
-                                                title={isAdmin ? userDisplayName(trx.user) : trx.description || trx.type}
+                                                title={
+                                                    isAdmin
+                                                        ? userDisplayName(trx.user)
+                                                        : cleanPosDescription(trx.description) || trx.type
+                                                }
                                                 subtitle={`${rupiah(trx.amount)} · ${dateTime(trx.occurred_at)}`}
                                                 badge={trx.type}
                                             />

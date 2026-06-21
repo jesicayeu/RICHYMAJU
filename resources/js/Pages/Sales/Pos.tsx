@@ -263,16 +263,18 @@ export default function SalesPos({
                     <p className="text-sm text-slate-500">Scan barcode barang dan proses pembayaran</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <Link href={route('sales.scanner-setup')} className="btn-muted">
-                        <Wrench className="h-4 w-4" /> Setup Scanner
-                    </Link>
-                    <Link href={route('sales.scanner-test')} className="btn-muted">
-                        <Keyboard className="h-4 w-4" /> Tes Scanner
-                    </Link>
                     {isAdmin && (
-                        <Link href={route('products.index')} className="btn-muted">
-                            <Settings2 className="h-4 w-4" /> Kelola Produk
-                        </Link>
+                        <>
+                            <Link href={route('sales.scanner-setup')} className="btn-muted">
+                                <Wrench className="h-4 w-4" /> Setup Scanner
+                            </Link>
+                            <Link href={route('sales.scanner-test')} className="btn-muted">
+                                <Keyboard className="h-4 w-4" /> Tes Scanner
+                            </Link>
+                            <Link href={route('products.index')} className="btn-muted">
+                                <Settings2 className="h-4 w-4" /> Kelola Produk
+                            </Link>
+                        </>
                     )}
                     <Link href={route('sales.index')} className="btn-muted">
                         <Package className="h-4 w-4" /> Riwayat
@@ -491,7 +493,6 @@ export default function SalesPos({
             {pendingPayment && (
                 <PaymentQrDialog
                     saleId={pendingPayment.sale.id}
-                    saleCode={pendingPayment.sale.code}
                     paymentQrPayload={pendingPayment.paymentQrPayload}
                     paymentQrError={pendingPayment.paymentQrError}
                     amount={pendingPayment.sale.total_amount}

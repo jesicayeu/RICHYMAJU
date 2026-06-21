@@ -61,13 +61,13 @@ class SaleTransactionSyncService
         $transaction->delete();
     }
 
-    private function description(Sale $sale): string
+    public function description(Sale $sale): string
     {
         $method = match ($sale->payment_method) {
             'barcode' => 'QRIS',
             default => 'Tunai',
         };
 
-        return "Penjualan POS {$sale->code} ({$method})";
+        return "Penjualan POS ({$method})";
     }
 }

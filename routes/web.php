@@ -31,12 +31,12 @@ Route::post('/webhooks/waha/{user}', WahaWebhookController::class)->name('webhoo
 
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [DashboardController::class, '__invoke'])->name('dashboard');
-    Route::get('/dashboard-export.pdf', [DashboardController::class, 'export'])->name('dashboard.export');
+    Route::get('/dashboard-export.pdf', [DashboardController::class, 'export'])->middleware('role:admin')->name('dashboard.export');
     Route::get('/media', [MediaController::class, 'show'])->name('media.show');
 
     Route::get('/sales/pos', [SaleController::class, 'pos'])->name('sales.pos');
-    Route::get('/sales/scanner-test', [SaleController::class, 'scannerTest'])->name('sales.scanner-test');
-    Route::get('/sales/scanner-setup', [SaleController::class, 'scannerSetup'])->name('sales.scanner-setup');
+    Route::get('/sales/scanner-test', [SaleController::class, 'scannerTest'])->middleware('role:admin')->name('sales.scanner-test');
+    Route::get('/sales/scanner-setup', [SaleController::class, 'scannerSetup'])->middleware('role:admin')->name('sales.scanner-setup');
     Route::resource('sales', SaleController::class)->except(['destroy']);
     Route::post('/sales/{sale}/confirm-payment', [SaleController::class, 'confirmPayment'])->name('sales.confirm-payment');
     Route::delete('/sales/{sale}', [SaleController::class, 'destroy'])->middleware('role:admin')->name('sales.destroy');

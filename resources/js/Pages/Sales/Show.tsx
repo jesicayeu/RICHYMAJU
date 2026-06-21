@@ -91,7 +91,7 @@ export default function SaleShow({
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
                         <p className="text-sm font-bold text-amber-800 dark:text-amber-200">Menunggu pembayaran QRIS</p>
                         <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                            {paymentInfo?.merchant_name} · {paymentInfo?.merchant_id} · Ref: {sale.code}
+                            {paymentInfo?.merchant_name} · {paymentInfo?.merchant_id}
                         </p>
                         <button type="button" onClick={() => setShowPayment(true)} className="btn-primary mt-3">
                             Tampilkan QR & Konfirmasi
@@ -147,7 +147,6 @@ export default function SaleShow({
             {showPayment && (
                 <PaymentQrDialog
                     saleId={sale.id}
-                    saleCode={sale.code}
                     paymentQrPayload={paymentQrPayload}
                     paymentQrError={paymentQrError}
                     amount={sale.total_amount}

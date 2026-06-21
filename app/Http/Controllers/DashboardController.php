@@ -35,6 +35,7 @@ class DashboardController extends Controller
     public function export(Request $request): Response
     {
         $user = $request->user();
+        abort_unless($user->isAdmin(), 403);
         $payload = $this->buildPayload($user);
         Carbon::setLocale('id');
 

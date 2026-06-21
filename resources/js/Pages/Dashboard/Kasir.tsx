@@ -1,4 +1,3 @@
-import DashboardReportDialog from '@/Components/DashboardReportDialog';
 import DashboardSummary from '@/Components/DashboardSummary';
 import {
     DashboardRecentDebts,
@@ -9,8 +8,7 @@ import {
 import StatCard from '@/Components/StatCard';
 import AppLayout from '@/Layouts/AppLayout';
 import { rupiah, rupiahShort } from '@/lib/format';
-import { FileDown, HandCoins, Receipt, ShoppingCart, TrendingDown, TrendingUp } from 'lucide-react';
-import { useState } from 'react';
+import { HandCoins, Receipt, ShoppingCart, TrendingDown, TrendingUp } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 export default function KasirDashboard({
@@ -30,33 +28,8 @@ export default function KasirDashboard({
     recentStocks: any[];
     recentDebts: any[];
 }) {
-    const [showReportDialog, setShowReportDialog] = useState(false);
-
     return (
         <AppLayout title="Dashboard Kasir">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h1 className="text-xl font-black sm:text-2xl">Dashboard</h1>
-                    <p className="text-sm text-slate-500">Ringkasan data penjualan, transaksi, stok, dan utang</p>
-                </div>
-                <button type="button" className="btn-primary" onClick={() => setShowReportDialog(true)}>
-                    <FileDown className="h-4 w-4" />
-                    Cetak Laporan
-                </button>
-            </div>
-
-            {showReportDialog && (
-                <DashboardReportDialog
-                    stats={stats}
-                    summary={summary}
-                    recentSales={recentSales}
-                    recentTransactions={recentTransactions}
-                    recentStocks={recentStocks}
-                    recentDebts={recentDebts}
-                    onClose={() => setShowReportDialog(false)}
-                />
-            )}
-
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <StatCard title="Penjualan Hari Ini" value={rupiah(stats.salesToday)} icon={ShoppingCart} tone="violet" />
                 <StatCard title="Pemasukan Hari Ini" value={rupiah(stats.incomeToday)} icon={TrendingUp} tone="emerald" />

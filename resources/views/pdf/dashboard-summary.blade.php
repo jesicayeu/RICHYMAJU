@@ -176,7 +176,6 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Kode</th>
                     @if($isAdmin)<th>Kasir</th>@endif
                     <th>Total</th>
                     <th>Status</th>
@@ -186,7 +185,6 @@
             <tbody>
                 @foreach ($recentSales as $sale)
                     <tr>
-                        <td>{{ $sale->code }}</td>
                         @if($isAdmin)<td>{{ $sale->user->name ?? '-' }}</td>@endif
                         <td class="nominal">Rp {{ number_format($sale->total_amount, 0, ',', '.') }}</td>
                         <td><span class="badge">{{ $sale->payment_status === 'lunas' ? 'Lunas' : 'Belum Lunas' }}</span></td>

@@ -15,7 +15,6 @@ type PaymentInfo = {
 
 type PaymentQrDialogProps = {
     saleId: number;
-    saleCode: string;
     paymentQrPayload?: string | null;
     paymentQrError?: string | null;
     amount: number;
@@ -30,7 +29,6 @@ function csrfToken(): string {
 
 export default function PaymentQrDialog({
     saleId,
-    saleCode,
     paymentQrPayload,
     paymentQrError,
     amount,
@@ -120,7 +118,6 @@ export default function PaymentQrDialog({
                 <div className="mb-4 space-y-1 text-center">
                     <p className="text-sm text-slate-500">Total bayar</p>
                     <p className="text-2xl font-black tabular-nums">{rupiah(amount)}</p>
-                    <p className="font-mono text-xs text-slate-500">Ref: {saleCode}</p>
                 </div>
 
                 <button

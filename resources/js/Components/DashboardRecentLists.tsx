@@ -1,5 +1,5 @@
 import Badge from '@/Components/Badge';
-import { dateTime, dateTimeCompact, formatQuantity, humanStockType, rupiah, userDisplayName } from '@/lib/format';
+import { dateTime, dateTimeCompact, formatQuantity, humanStockType, rupiah, userDisplayName, cleanPosDescription } from '@/lib/format';
 import { Link } from '@inertiajs/react';
 import type { ReactNode } from 'react';
 
@@ -61,10 +61,14 @@ export function DashboardRecentTransactions({
                     <RecentItemLink key={trx.id} href={route('transactions.show', trx.id)}>
                         <div className="min-w-0">
                             <div className="truncate font-bold">
-                                {showUser ? userDisplayName(trx.user) : trx.description || trx.type}
+                                {showUser
+                                    ? userDisplayName(trx.user)
+                                    : cleanPosDescription(trx.description) || trx.type}
                             </div>
                             <div className="text-sm text-slate-500">
-                                {showUser && trx.description ? `${trx.description} · ` : ''}
+                                {showUser && trx.description
+                                    ? `${cleanPosDescription(trx.description)} · `
+                                    : ''}
                                 {rupiah(trx.amount)} · {dateTime(trx.occurred_at)}
                             </div>
                         </div>

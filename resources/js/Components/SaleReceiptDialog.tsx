@@ -45,6 +45,13 @@ export default function SaleReceiptDialog({ sale, onClose }: SaleReceiptDialogPr
         <>
             <style>{`
                 @media print {
+                    html,
+                    body {
+                        overflow: hidden !important;
+                        height: auto !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                    }
                     body * {
                         visibility: hidden !important;
                     }
@@ -63,6 +70,10 @@ export default function SaleReceiptDialog({ sale, onClose }: SaleReceiptDialogPr
                         line-height: 1.35;
                         color: #000 !important;
                         background: #fff !important;
+                    }
+                    @page {
+                        margin: 0;
+                        size: 80mm auto;
                     }
                 }
             `}</style>
@@ -126,7 +137,6 @@ function ReceiptContent({
             </div>
 
             <div className="border-y border-dashed border-slate-300 py-2 text-left text-[10px] leading-relaxed">
-                <p>No: {sale.code}</p>
                 <p>Tanggal: {dateTime(paidAt)}</p>
                 <p>Kasir: {cashierName}</p>
                 <p>Bayar: {humanSalePaymentMethod(sale.payment_method)}</p>
