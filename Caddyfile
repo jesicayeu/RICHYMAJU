@@ -18,3 +18,11 @@ wa.richymaju.my.id {
 	reverse_proxy waha:3000
 	encode zstd gzip
 }
+
+db.richymaju.my.id {
+	reverse_proxy phpmyadmin_richymaju:80 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
+	encode zstd gzip
+}

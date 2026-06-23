@@ -44,3 +44,7 @@ Broadcast::channel("conversation.{conversationId}", function ($user, int $conver
     return $conversation->participant_a_id === $user->id
         || $conversation->participant_b_id === $user->id;
 });
+
+Broadcast::channel('pos-cart.{userId}', function ($user, int $userId) {
+    return (int) $user->id === $userId;
+});

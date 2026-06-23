@@ -1,11 +1,14 @@
-import BarcodeScanner from '@/Components/BarcodeScanner';
+import BarcodeScanner, { type ScanAddResult } from '@/Components/BarcodeScanner';
+import ProductSearchCombobox from '@/Components/ProductSearchCombobox';
 import PaymentQrDialog from '@/Components/PaymentQrDialog';
 import SaleReceiptDialog, { type ReceiptSale } from '@/Components/SaleReceiptDialog';
 import AppLayout from '@/Layouts/AppLayout';
 import { formatQuantity, rupiah } from '@/lib/format';
-import { Link } from '@inertiajs/react';
-import { CreditCard, Keyboard, Minus, Package, Plus, Settings2, ShoppingCart, Trash2, Wallet, Wrench } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import type { PageProps } from '@/types';
+import { useEcho } from '@laravel/echo-react';
+import { usePage } from '@inertiajs/react';
+import { CreditCard, Minus, Plus, ShoppingCart, Trash2, Wallet } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 type Product = {
@@ -39,8 +42,127 @@ type PendingPayment = {
     };
 };
 
+const POS_CART_STORAGE_KEY = 'richymaju.pos.cart';
+const SCAN_COOLDOWN_MS = 2000;
+
+const pauseAfterSuccessScan = () =>
+    new Promise<void>((resolve) => {
+        window.setTimeout(resolve, SCAN_COOLDOWN_MS);
+    });
+
+type PosCartState = {
+    cart: CartItem[];
+    paymentMethod: 'tunai' | 'barcode';
+    cashPaid: string;
+    updatedAt?: string;
+};
+
+type PosCartBroadcastPayload = {
+    client_id?: string | null;
+    updated_at?: string;
+    cart?: CartItem[];
+    paymentMethod?: 'tunai' | 'barcode';
+    cashPaid?: string;
+};
+
+function isCartItem(value: unknown): value is CartItem {
+    if (!value || typeof value !== 'object') return false;
+    const item = value as CartItem;
+    return (
+        typeof item.product_id === 'number' &&
+        typeof item.barcode === 'string' &&
+        typeof item.item_name === 'string' &&
+        typeof item.unit === 'string' &&
+        typeof item.price === 'number' &&
+        typeof item.quantity === 'number' &&
+        typeof item.stock === 'number'
+    );
+}
+
+function hydrateCartItems(items: unknown, products: Product[]): CartItem[] {
+    if (!Array.isArray(items)) return [];
+
+    return items
+        .filter(isCartItem)
+        .map((item) => {
+            const product = products.find((entry) => entry.id === item.product_id);
+            if (!product || product.stock <= 0) return null;
+
+            return {
+                product_id: product.id,
+                barcode: product.barcode,
+                item_name: product.name,
+                unit: product.unit,
+                price: product.sell_price,
+                stock: product.stock,
+                quantity: Math.min(item.quantity, product.stock),
+            } satisfies CartItem;
+        })
+        .filter((item): item is CartItem => item !== null && item.quantity > 0);
+}
+
+function loadLegacyPosState(products: Product[]): PosCartState | null {
+    try {
+        const raw = localStorage.getItem(POS_CART_STORAGE_KEY);
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw) as Partial<PosCartState> | CartItem[];
+        const items = Array.isArray(parsed) ? parsed : parsed.cart;
+
+        return {
+            cart: hydrateCartItems(items, products),
+            paymentMethod:
+                !Array.isArray(parsed) && parsed.paymentMethod === 'barcode' ? 'barcode' : 'tunai',
+            cashPaid: !Array.isArray(parsed) && typeof parsed.cashPaid === 'string' ? parsed.cashPaid : '',
+        };
+    } catch {
+        return null;
+    }
+}
+
+function clearLegacyPosState() {
+    localStorage.removeItem(POS_CART_STORAGE_KEY);
+}
+
 function csrfToken(): string {
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
+}
+
+async function persistPosCart(state: PosCartState, clientId: string): Promise<string | null> {
+    const response = await fetch(route('sales.pos.cart.save'), {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRF-TOKEN': csrfToken(),
+        },
+        body: JSON.stringify({
+            payment_method: state.paymentMethod,
+            cash_paid: state.cashPaid,
+            client_id: clientId,
+            items: state.cart.map((item) => ({
+                product_id: item.product_id,
+                quantity: item.quantity,
+            })),
+        }),
+    });
+
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as PosCartState;
+    return data.updatedAt ?? null;
+}
+
+async function clearPosCartRemote(clientId: string): Promise<void> {
+    await fetch(route('sales.pos.cart.clear'), {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRF-TOKEN': csrfToken(),
+        },
+        body: JSON.stringify({ client_id: clientId }),
+    });
 }
 
 function parseCashAmount(value: string): number {
@@ -53,19 +175,65 @@ export default function SalesPos({
     isAdmin,
     paymentConfigured,
     paymentInfo,
+    posCart,
 }: {
     products: Product[];
     isAdmin: boolean;
     paymentConfigured: boolean;
     paymentInfo: PendingPayment['paymentInfo'];
+    posCart: PosCartState;
 }) {
-    const [cart, setCart] = useState<CartItem[]>([]);
-    const [paymentMethod, setPaymentMethod] = useState<'tunai' | 'barcode'>('tunai');
-    const [cashPaid, setCashPaid] = useState('');
+    const { auth } = usePage<PageProps>().props;
+    const clientId = useRef(crypto.randomUUID());
+    const skipPersistRef = useRef(false);
+    const lastUpdatedAtRef = useRef(posCart.updatedAt ?? '');
+    const [cart, setCart] = useState<CartItem[]>(posCart.cart);
+    const [paymentMethod, setPaymentMethod] = useState<'tunai' | 'barcode'>(posCart.paymentMethod);
+    const [cashPaid, setCashPaid] = useState(posCart.cashPaid);
     const [processing, setProcessing] = useState(false);
     const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
     const [receiptSale, setReceiptSale] = useState<ReceiptSale | null>(null);
-    const [search, setSearch] = useState('');
+    const persistReady = useRef(false);
+    const legacyMigrated = useRef(false);
+    const cartRef = useRef(cart);
+    const scanBusyRef = useRef(false);
+    const [lastAddStatus, setLastAddStatus] = useState<ScanAddResult | null>(null);
+
+    useEffect(() => {
+        cartRef.current = cart;
+    }, [cart]);
+
+    const applyRemoteCart = useCallback((payload: PosCartBroadcastPayload) => {
+        if (payload.client_id && payload.client_id === clientId.current) {
+            return;
+        }
+
+        if (
+            payload.updated_at &&
+            lastUpdatedAtRef.current &&
+            payload.updated_at <= lastUpdatedAtRef.current
+        ) {
+            return;
+        }
+
+        const nextCart = Array.isArray(payload.cart) ? payload.cart.filter(isCartItem) : [];
+
+        skipPersistRef.current = true;
+        setCart(nextCart);
+        setPaymentMethod(payload.paymentMethod === 'barcode' ? 'barcode' : 'tunai');
+        setCashPaid(typeof payload.cashPaid === 'string' ? payload.cashPaid : '');
+
+        if (payload.updated_at) {
+            lastUpdatedAtRef.current = payload.updated_at;
+        }
+    }, []);
+
+    useEcho<PosCartBroadcastPayload>(
+        `pos-cart.${auth.user.id}`,
+        '.PosCartUpdated',
+        applyRemoteCart,
+        [auth.user.id, applyRemoteCart],
+    );
 
     const totalAmount = useMemo(
         () => cart.reduce((sum, item) => sum + Math.round(item.quantity * item.price), 0),
@@ -87,71 +255,163 @@ export default function SalesPos({
         }
     }, [paymentMethod]);
 
-    const filteredProducts = useMemo(() => {
-        const term = search.trim().toLowerCase();
-        if (!term) return products;
-        return products.filter(
-            (product) =>
-                product.name.toLowerCase().includes(term) ||
-                product.barcode.toLowerCase().includes(term),
-        );
-    }, [products, search]);
+    useEffect(() => {
+        if (legacyMigrated.current) return;
+        legacyMigrated.current = true;
 
-    const addProductToCart = (product: Product, qty = 1) => {
-        if (product.stock <= 0) {
-            toast.error('Stok produk habis.');
+        if (posCart.cart.length > 0 || posCart.cashPaid) return;
+
+        const legacy = loadLegacyPosState(products);
+        if (!legacy || (legacy.cart.length === 0 && !legacy.cashPaid)) {
+            clearLegacyPosState();
             return;
         }
 
-        setCart((current) => {
-            const existing = current.find((item) => item.product_id === product.id);
-            if (existing) {
-                const nextQty = existing.quantity + qty;
-                if (nextQty > product.stock) {
-                    toast.error('Jumlah melebihi stok tersedia.');
-                    return current;
-                }
-                return current.map((item) =>
-                    item.product_id === product.id ? { ...item, quantity: nextQty } : item,
-                );
-            }
-
-            if (qty > product.stock) {
-                toast.error('Jumlah melebihi stok tersedia.');
-                return current;
-            }
-
-            return [
-                ...current,
-                {
-                    product_id: product.id,
-                    barcode: product.barcode,
-                    item_name: product.name,
-                    unit: product.unit,
-                    price: product.sell_price,
-                    quantity: qty,
-                    stock: product.stock,
-                },
-            ];
+        setCart(legacy.cart);
+        setPaymentMethod(legacy.paymentMethod);
+        setCashPaid(legacy.cashPaid);
+        clearLegacyPosState();
+        void persistPosCart(legacy, clientId.current).then((updatedAt) => {
+            if (updatedAt) lastUpdatedAtRef.current = updatedAt;
         });
+    }, [posCart.cart.length, posCart.cashPaid, products]);
+
+    useEffect(() => {
+        if (!persistReady.current) {
+            persistReady.current = true;
+            return;
+        }
+
+        if (skipPersistRef.current) {
+            skipPersistRef.current = false;
+            return;
+        }
+
+        const timer = window.setTimeout(() => {
+            void persistPosCart({ cart, paymentMethod, cashPaid }, clientId.current).then((updatedAt) => {
+                if (updatedAt) lastUpdatedAtRef.current = updatedAt;
+            });
+        }, 500);
+
+        return () => window.clearTimeout(timer);
+    }, [cart, paymentMethod, cashPaid]);
+
+    const tryAddProductToCart = (
+        product: Product,
+        qty = 1,
+    ): { success: boolean; quantity: number | null; unit: string | null } => {
+        const live = products.find((entry) => entry.id === product.id) ?? product;
+
+        const current = cartRef.current;
+        const existing = current.find((item) => item.product_id === live.id);
+        const currentQty = existing?.quantity ?? 0;
+
+        if (live.stock <= 0) {
+            return { success: false, quantity: currentQty > 0 ? currentQty : null, unit: live.unit };
+        }
+
+        const nextQty = currentQty + qty;
+
+        if (nextQty > live.stock) {
+            return { success: false, quantity: currentQty > 0 ? currentQty : null, unit: live.unit };
+        }
+
+        const newCart = existing
+            ? current.map((item) =>
+                  item.product_id === live.id
+                      ? { ...item, quantity: nextQty, stock: live.stock }
+                      : item,
+              )
+            : [
+                  ...current,
+                  {
+                      product_id: live.id,
+                      barcode: live.barcode,
+                      item_name: live.name,
+                      unit: live.unit,
+                      price: live.sell_price,
+                      quantity: qty,
+                      stock: live.stock,
+                  },
+              ];
+
+        cartRef.current = newCart;
+        setCart(newCart);
+        return { success: true, quantity: nextQty, unit: live.unit };
     };
 
-    const lookupAndAdd = async (barcode: string) => {
+    const reportAddStatus = (result: ScanAddResult) => {
+        setLastAddStatus(result);
+    };
+
+    const lookupAndAdd = async (barcode: string): Promise<ScanAddResult> => {
+        const needle = barcode.trim();
+
+        if (scanBusyRef.current) {
+            return { success: false, barcode: needle, name: null, skipped: true };
+        }
+
+        scanBusyRef.current = true;
+
         try {
-            const response = await fetch(route('products.lookup', encodeURIComponent(barcode)), {
+            const local = products.find((product) => product.barcode === needle);
+
+            if (local) {
+                const outcome = tryAddProductToCart(local);
+                const result: ScanAddResult = {
+                    success: outcome.success,
+                    barcode: local.barcode,
+                    name: local.name,
+                    quantity: outcome.quantity,
+                    unit: outcome.unit,
+                };
+
+                reportAddStatus(result);
+                if (result.success) {
+                    await pauseAfterSuccessScan();
+                }
+                return result;
+            }
+
+            const response = await fetch(route('products.lookup', encodeURIComponent(needle)), {
                 headers: { Accept: 'application/json' },
             });
 
             if (!response.ok) {
-                toast.error(`Produk tidak ditemukan untuk barcode: ${barcode}`);
-                return;
+                const result: ScanAddResult = {
+                    success: false,
+                    barcode: needle,
+                    name: null,
+                };
+                reportAddStatus(result);
+                return result;
             }
 
             const product: Product = await response.json();
-            addProductToCart(product);
-            toast.success(`${product.name} ditambahkan ke keranjang.`);
+            const outcome = tryAddProductToCart(product);
+            const result: ScanAddResult = {
+                success: outcome.success,
+                barcode: product.barcode,
+                name: product.name,
+                quantity: outcome.quantity,
+                unit: outcome.unit,
+            };
+
+            reportAddStatus(result);
+            if (result.success) {
+                await pauseAfterSuccessScan();
+            }
+            return result;
         } catch {
-            toast.error('Gagal mencari produk.');
+            const result: ScanAddResult = {
+                success: false,
+                barcode: needle,
+                name: null,
+            };
+            reportAddStatus(result);
+            return result;
+        } finally {
+            scanBusyRef.current = false;
         }
     };
 
@@ -179,6 +439,7 @@ export default function SalesPos({
         setCart([]);
         setCashPaid('');
         setPaymentMethod('tunai');
+        void clearPosCartRemote(clientId.current);
     };
 
     const checkout = async () => {
@@ -257,79 +518,45 @@ export default function SalesPos({
 
     return (
         <AppLayout title="Kasir POS">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h2 className="text-2xl font-black">Point of Sale</h2>
-                    <p className="text-sm text-slate-500">Scan barcode barang dan proses pembayaran</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    {isAdmin && (
-                        <>
-                            <Link href={route('sales.scanner-setup')} className="btn-muted">
-                                <Wrench className="h-4 w-4" /> Setup Scanner
-                            </Link>
-                            <Link href={route('sales.scanner-test')} className="btn-muted">
-                                <Keyboard className="h-4 w-4" /> Tes Scanner
-                            </Link>
-                            <Link href={route('products.index')} className="btn-muted">
-                                <Settings2 className="h-4 w-4" /> Kelola Produk
-                            </Link>
-                        </>
-                    )}
-                    <Link href={route('sales.index')} className="btn-muted">
-                        <Package className="h-4 w-4" /> Riwayat
-                    </Link>
-                </div>
-            </div>
-
             <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
                 <div className="space-y-4">
-                    <div className="glass-card p-4 sm:p-5">
+                    <div className="glass-card overflow-visible p-4 sm:p-5">
                         <BarcodeScanner
                             label="Scan Barcode Barang"
                             onScan={lookupAndAdd}
+                            lastAddStatus={lastAddStatus}
                             disabled={processing}
-                        />
-                        <div className="mt-4">
-                            <input
-                                className="input"
-                                placeholder="Cari produk atau barcode..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                            />
-                        </div>
-                    </div>
+                            retainFocus={false}
+                            refocusAfterScan={false}
+                            manualInput={
+                                <ProductSearchCombobox
+                                    products={products}
+                                    disabled={processing}
+                                    onBarcodeScan={lookupAndAdd}
+                                    onSelect={async (product) => {
+                                        if (scanBusyRef.current) return;
 
-                    <div className="glass-card p-4 sm:p-5">
-                        <h3 className="mb-3 text-sm font-bold text-slate-500">Daftar Produk</h3>
-                        <div className="grid max-h-[28rem] gap-3 overflow-y-auto sm:grid-cols-2">
-                            {filteredProducts.length === 0 ? (
-                                <p className="col-span-full py-8 text-center text-sm text-slate-400">
-                                    Belum ada produk. {isAdmin ? 'Tambahkan produk dengan barcode di Kelola Produk.' : 'Hubungi admin untuk menambahkan produk.'}
-                                </p>
-                            ) : (
-                                filteredProducts.map((product) => (
-                                    <button
-                                        key={product.id}
-                                        type="button"
-                                        onClick={() => addProductToCart(product)}
-                                        disabled={processing || product.stock <= 0}
-                                        className="rounded-2xl border border-slate-100 p-4 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50 disabled:opacity-50 dark:border-slate-800 dark:hover:border-indigo-800 dark:hover:bg-indigo-950/20"
-                                    >
-                                        <div className="font-bold">{product.name}</div>
-                                        <div className="mt-1 font-mono text-xs text-slate-500">{product.barcode}</div>
-                                        <div className="mt-2 flex items-center justify-between gap-2">
-                                            <span className="font-black tabular-nums text-indigo-600 dark:text-indigo-300">
-                                                {rupiah(product.sell_price)}
-                                            </span>
-                                            <span className="text-xs text-slate-500">
-                                                Stok: {formatQuantity(product.stock, product.unit)}
-                                            </span>
-                                        </div>
-                                    </button>
-                                ))
-                            )}
-                        </div>
+                                        scanBusyRef.current = true;
+                                        try {
+                                            const outcome = tryAddProductToCart(product);
+                                            const result: ScanAddResult = {
+                                                success: outcome.success,
+                                                barcode: product.barcode,
+                                                name: product.name,
+                                                quantity: outcome.quantity,
+                                                unit: outcome.unit,
+                                            };
+                                            reportAddStatus(result);
+                                            if (result.success) {
+                                                await pauseAfterSuccessScan();
+                                            }
+                                        } finally {
+                                            scanBusyRef.current = false;
+                                        }
+                                    }}
+                                />
+                            }
+                        />
                     </div>
                 </div>
 
@@ -402,32 +629,6 @@ export default function SalesPos({
                     </div>
 
                     <div className="mt-4 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
-                        <div className="grid grid-cols-2 gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setPaymentMethod('tunai')}
-                                className={`flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-bold transition ${
-                                    paymentMethod === 'tunai'
-                                        ? 'bg-emerald-600 text-white'
-                                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                                }`}
-                            >
-                                <Wallet className="h-4 w-4" /> Tunai
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setPaymentMethod('barcode')}
-                                disabled={!paymentConfigured}
-                                title={!paymentConfigured ? 'Atur QRIS di Pengaturan > Pembayaran' : undefined}
-                                className={`flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-bold transition disabled:opacity-50 ${
-                                    paymentMethod === 'barcode'
-                                        ? 'bg-indigo-600 text-white'
-                                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                                }`}
-                            >
-                                <CreditCard className="h-4 w-4" /> QRIS
-                            </button>
-                        </div>
                         {isAdmin && !paymentConfigured && (
                             <p className="text-xs text-amber-600">
                                 Atur QRIS di{' '}
@@ -441,6 +642,33 @@ export default function SalesPos({
                             <div className="flex items-center justify-between">
                                 <span className="font-bold text-slate-500">Jumlah Total</span>
                                 <span className="text-2xl font-black tabular-nums">{rupiah(totalAmount)}</span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentMethod('tunai')}
+                                    className={`flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-bold transition ${
+                                        paymentMethod === 'tunai'
+                                            ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25'
+                                            : 'bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300'
+                                    }`}
+                                >
+                                    <Wallet className="h-4 w-4" /> Tunai
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentMethod('barcode')}
+                                    disabled={!paymentConfigured}
+                                    title={!paymentConfigured ? 'Atur QRIS di Pengaturan > Pembayaran' : undefined}
+                                    className={`flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-bold transition disabled:opacity-50 ${
+                                        paymentMethod === 'barcode'
+                                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25'
+                                            : 'bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300'
+                                    }`}
+                                >
+                                    <CreditCard className="h-4 w-4" /> QRIS
+                                </button>
                             </div>
 
                             {paymentMethod === 'tunai' && (
@@ -482,7 +710,11 @@ export default function SalesPos({
                                 cart.length === 0 ||
                                 (paymentMethod === 'tunai' && cashPaidAmount < totalAmount)
                             }
-                            className="btn-primary w-full !py-4 text-base"
+                            className={`w-full rounded-2xl !py-4 text-base font-bold text-white transition disabled:pointer-events-none disabled:opacity-50 ${
+                                paymentMethod === 'tunai'
+                                    ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40 hover:bg-emerald-300'
+                                    : 'btn-primary shadow-lg shadow-indigo-500/30'
+                            }`}
                         >
                             {processing ? 'Memproses...' : paymentMethod === 'tunai' ? 'Bayar Tunai' : 'Bayar via QRIS'}
                         </button>

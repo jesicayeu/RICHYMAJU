@@ -1,21 +1,19 @@
 import InputError from '@/Components/InputError';
 import BarcodeScanner from '@/Components/BarcodeScanner';
-import StatCard from '@/Components/StatCard';
 import AppLayout from '@/Layouts/AppLayout';
-import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import { formatQuantity, rupiah } from '@/lib/format';
 import { Link, router, useForm } from '@inertiajs/react';
 import {
+    AlertCircle,
+    CheckCircle2,
     History,
-    Package,
-    PackageMinus,
-    PackagePlus,
+    Loader2,
     Plus,
     Search,
     ShoppingCart,
     Trash2,
 } from 'lucide-react';
-import { FormEvent, useRef, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 
 type ProductRow = {
     id: number;
@@ -28,71 +26,56 @@ type ProductRow = {
     is_active: boolean;
 };
 
-type SummaryData = {
-    total: number;
-    available: number;
-    empty: number;
-};
-
 const stockStatusTabs = [
     { value: '', label: 'Semua Stok' },
     { value: 'available', label: 'Stok Tersedia' },
     { value: 'empty', label: 'Stok Habis' },
 ] as const;
 
-const perPageOptions = [10, 25, 50, 100];
+type BarcodeStatus =
+    | { state: 'idle' }
+    | { state: 'checking'; code?: string }
+    | { state: 'registered'; code: string; product: ProductRow; isActive: boolean }
+    | { state: 'unregistered'; code: string };
 
-function AdminPaginationFooter({
-    products,
-    filter,
-    onPerPage,
-}: {
-    products: any;
-    filter: Record<string, string | undefined>;
-    onPerPage: (n: number) => void;
-}) {
-    const from = products.from ?? 0;
-    const to = products.to ?? 0;
-    const total = products.total ?? 0;
-    const currentPerPage = Number(filter.per_page ?? 10);
+function BarcodeRegistrationStatus({ status }: { status: BarcodeStatus }) {
+    if (status.state === 'idle') return null;
+
+    if (status.state === 'checking') {
+        return (
+            <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Memeriksa barcode{status.code ? ` ${status.code}` : ''}...
+            </div>
+        );
+    }
+
+    if (status.state === 'unregistered') {
+        return (
+            <div className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                    <p className="font-bold">Barcode belum terdaftar</p>
+                    <p className="mt-1 font-mono text-xs">{status.code}</p>
+                    <p className="mt-1 text-xs opacity-90">Silakan lengkapi data produk di bawah.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="flex flex-col gap-4 border-t border-slate-100 p-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-slate-500">
-                Menampilkan <span className="font-semibold text-slate-700 dark:text-slate-200">{from}</span> sampai{' '}
-                <span className="font-semibold text-slate-700 dark:text-slate-200">{to}</span> dari{' '}
-                <span className="font-semibold text-slate-700 dark:text-slate-200">{total}</span> entri
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-                {products.links.map((link: any, i: number) => (
-                    <button
-                        key={i}
-                        disabled={!link.url}
-                        onClick={() => link.url && router.visit(link.url)}
-                        className={`min-w-[2rem] rounded-xl px-3 py-1 text-sm font-semibold ${
-                            link.active ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800'
-                        }`}
-                        dangerouslySetInnerHTML={{ __html: link.label }}
-                    />
-                ))}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm text-slate-500">Tampilkan</span>
-                {perPageOptions.map((n) => (
-                    <button
-                        key={n}
-                        type="button"
-                        onClick={() => onPerPage(n)}
-                        className={`rounded-full px-3 py-1 text-sm font-semibold transition ${
-                            currentPerPage === n
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                        }`}
-                    >
-                        {n}
-                    </button>
-                ))}
-                <span className="text-sm text-slate-500">per halaman</span>
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+                <p className="font-bold">
+                    {status.isActive ? 'Produk sudah terdaftar' : 'Barcode sudah digunakan (produk nonaktif)'}
+                </p>
+                <p className="mt-1 font-mono text-xs">{status.code}</p>
+                <p className="mt-1 font-medium">{status.product.name}</p>
+                <p className="mt-1 text-xs opacity-90">
+                    Stok: {formatQuantity(status.product.stock, status.product.unit)} · Harga jual:{' '}
+                    {rupiah(status.product.sell_price)}
+                </p>
             </div>
         </div>
     );
@@ -216,21 +199,110 @@ function ProductsTable({ products, isAdmin, onDelete }: { products: any; isAdmin
 
 function AddProductForm() {
     const nameInputRef = useRef<HTMLInputElement>(null);
+    const checkAbortRef = useRef<AbortController | null>(null);
+    const [barcodeStatus, setBarcodeStatus] = useState<BarcodeStatus>({ state: 'idle' });
     const { data, setData, processing, reset, errors } = useForm({
         barcode: '',
         name: '',
         unit: 'pcs',
+        initial_quantity: '',
         buy_price: '',
         sell_price: '',
     });
 
-    const handleBarcodeScan = (code: string) => {
-        setData('barcode', code);
-        window.setTimeout(() => nameInputRef.current?.focus(), 100);
+    const applyCheckResult = (
+        needle: string,
+        result: { registered: boolean; is_active?: boolean; product?: ProductRow },
+    ) => {
+        if (result.registered && result.product) {
+            setBarcodeStatus({
+                state: 'registered',
+                code: needle,
+                product: result.product,
+                isActive: Boolean(result.is_active),
+            });
+            setData('barcode', '');
+            return;
+        }
+
+        setBarcodeStatus({ state: 'unregistered', code: needle });
+        setData('barcode', needle);
+    };
+
+    const checkBarcode = (code: string) => {
+        const needle = code.trim();
+        if (needle.length < 3) {
+            setBarcodeStatus((prev) => (prev.state === 'registered' ? prev : { state: 'idle' }));
+            return;
+        }
+
+        checkAbortRef.current?.abort();
+        const controller = new AbortController();
+        checkAbortRef.current = controller;
+        setBarcodeStatus({ state: 'checking', code: needle });
+
+        fetch(route('products.check', encodeURIComponent(needle)), {
+            headers: { Accept: 'application/json' },
+            signal: controller.signal,
+        })
+            .then(async (response) => {
+                if (!response.ok) {
+                    setBarcodeStatus({ state: 'idle' });
+                    return;
+                }
+
+                const result = await response.json();
+                applyCheckResult(needle, result);
+            })
+            .catch((error: Error) => {
+                if (error.name !== 'AbortError') {
+                    setBarcodeStatus({ state: 'idle' });
+                }
+            });
+    };
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => checkBarcode(data.barcode), 300);
+        return () => window.clearTimeout(timer);
+    }, [data.barcode]);
+
+    const handleBarcodeScan = async (code: string) => {
+        const needle = code.trim();
+        if (needle.length < 3) return;
+        if (data.barcode.trim() && barcodeStatus.state === 'unregistered') return;
+
+        checkAbortRef.current?.abort();
+        const controller = new AbortController();
+        checkAbortRef.current = controller;
+        setBarcodeStatus({ state: 'checking', code: needle });
+
+        try {
+            const response = await fetch(route('products.check', encodeURIComponent(needle)), {
+                headers: { Accept: 'application/json' },
+                signal: controller.signal,
+            });
+
+            if (!response.ok) {
+                setBarcodeStatus({ state: 'idle' });
+                return;
+            }
+
+            const result = await response.json();
+            applyCheckResult(needle, result);
+
+            if (!result.registered) {
+                window.setTimeout(() => nameInputRef.current?.focus(), 100);
+            }
+        } catch (error) {
+            if ((error as Error).name !== 'AbortError') {
+                setBarcodeStatus({ state: 'idle' });
+            }
+        }
     };
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
+        if (barcodeStatus.state === 'registered') return;
         router.post(
             route('products.store'),
             {
@@ -239,74 +311,100 @@ function AddProductForm() {
                 unit: data.unit,
                 buy_price: Number(String(data.buy_price).replace(/\D/g, '')),
                 sell_price: Number(String(data.sell_price).replace(/\D/g, '')),
+                initial_quantity:
+                    data.initial_quantity === '' ? 0 : Number(String(data.initial_quantity).replace(',', '.')),
             },
             {
                 preserveScroll: true,
-                onSuccess: () => reset(),
+                onSuccess: () => {
+                    reset();
+                    setBarcodeStatus({ state: 'idle' });
+                },
             },
         );
     };
 
     return (
         <form onSubmit={submit} className="space-y-4 border-b border-slate-100 p-4 dark:border-slate-800 sm:p-6">
-            <h3 className="text-base font-black text-slate-600 dark:text-slate-400">Tambah Produk Baru</h3>
-            <div className="grid gap-4 md:grid-cols-2">
-                <div className="md:col-span-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+                <div className="block min-w-0">
+                    <label className="block">
+                        <span className="mb-1.5 block text-sm font-bold">Barcode</span>
+                        <input
+                            className="input font-mono"
+                            value={data.barcode}
+                            onChange={(e) => setData('barcode', e.target.value)}
+                            placeholder="Ketik manual atau scan dengan kamera"
+                        />
+                        <InputError message={errors.barcode} />
+                    </label>
                     <BarcodeScanner
                         label=""
+                        variant="register"
+                        embedded
+                        lockWhenFilled={Boolean(data.barcode.trim())}
                         value={data.barcode}
                         onScan={handleBarcodeScan}
                         disabled={processing}
                         retainFocus={false}
                         refocusAfterScan={false}
                     />
+                    <BarcodeRegistrationStatus status={barcodeStatus} />
                 </div>
-                <label>
-                    <span className="mb-2 block text-sm font-bold">Barcode</span>
-                    <input
-                        className="input font-mono"
-                        value={data.barcode}
-                        onChange={(e) => setData('barcode', e.target.value)}
-                        placeholder="Scan di atas atau ketik manual"
-                    />
-                    <InputError message={errors.barcode} />
-                </label>
-                <label>
-                    <span className="mb-2 block text-sm font-bold">Nama Barang</span>
+                <label className="block min-w-0">
+                    <span className="mb-1.5 block text-sm font-bold">Nama Barang</span>
                     <input className="input" ref={nameInputRef} value={data.name} onChange={(e) => setData('name', e.target.value)} />
                     <InputError message={errors.name} />
                 </label>
-                <label>
-                    <span className="mb-2 block text-sm font-bold">Satuan</span>
-                    <input
-                        className="input"
-                        value={data.unit}
-                        onChange={(e) => setData('unit', e.target.value)}
-                        placeholder="pcs, kg, liter"
-                    />
-                    <InputError message={errors.unit} />
-                </label>
-                <label>
-                    <span className="mb-2 block text-sm font-bold">Harga Beli</span>
-                    <input
-                        className="input"
-                        value={data.buy_price ? rupiah(Number(String(data.buy_price).replace(/\D/g, ''))) : ''}
-                        onChange={(e) => setData('buy_price', e.target.value.replace(/\D/g, ''))}
-                        placeholder="Harga modal pembelian"
-                    />
-                    <InputError message={errors.buy_price} />
-                </label>
-                <label>
-                    <span className="mb-2 block text-sm font-bold">Harga Jual</span>
-                    <input
-                        className="input"
-                        value={data.sell_price ? rupiah(Number(String(data.sell_price).replace(/\D/g, ''))) : ''}
-                        onChange={(e) => setData('sell_price', e.target.value.replace(/\D/g, ''))}
-                    />
-                    <InputError message={errors.sell_price} />
-                </label>
+                <div className="flex min-w-0 flex-col gap-2">
+                    <label className="block">
+                        <span className="mb-1.5 block text-sm font-bold">Satuan</span>
+                        <input
+                            className="input"
+                            value={data.unit}
+                            onChange={(e) => setData('unit', e.target.value)}
+                            placeholder="pcs, kg, liter"
+                        />
+                        <InputError message={errors.unit} />
+                    </label>
+                    <label className="block">
+                        <span className="mb-1.5 block text-sm font-bold">Jumlah Saat Ini</span>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            className="input"
+                            value={data.initial_quantity}
+                            onChange={(e) => setData('initial_quantity', e.target.value)}
+                            placeholder="0"
+                        />
+                        <InputError message={errors.initial_quantity} />
+                    </label>
+                </div>
+                <div className="flex min-w-0 flex-col gap-2">
+                    <label className="block">
+                        <span className="mb-1.5 block text-sm font-bold">Harga Beli</span>
+                        <input
+                            className="input"
+                            value={data.buy_price ? rupiah(Number(String(data.buy_price).replace(/\D/g, ''))) : ''}
+                            onChange={(e) => setData('buy_price', e.target.value.replace(/\D/g, ''))}
+                            placeholder="Harga modal pembelian"
+                        />
+                        <InputError message={errors.buy_price} />
+                    </label>
+                    <label className="block">
+                        <span className="mb-1.5 block text-sm font-bold">Harga Jual</span>
+                        <input
+                            className="input"
+                            value={data.sell_price ? rupiah(Number(String(data.sell_price).replace(/\D/g, ''))) : ''}
+                            onChange={(e) => setData('sell_price', e.target.value.replace(/\D/g, ''))}
+                        />
+                        <InputError message={errors.sell_price} />
+                    </label>
+                </div>
             </div>
-            <button type="submit" disabled={processing} className="btn-primary">
+            <button type="submit" disabled={processing} className="btn-primary w-full sm:w-auto">
                 <Plus className="h-4 w-4" /> Tambah Produk
             </button>
         </form>
@@ -386,200 +484,14 @@ function KasirProductsIndex({
     );
 }
 
-function AdminProductsIndex({
-    products,
-    filter,
-    setFilter,
-    navigate,
-    submit,
-    summary,
-    onDelete,
-}: {
-    products: any;
-    filter: Record<string, string | undefined>;
-    setFilter: (f: Record<string, string | undefined>) => void;
-    navigate: (extra?: Record<string, string | number | undefined>) => void;
-    submit: (e: FormEvent) => void;
-    summary: SummaryData;
-    onDelete: (product: ProductRow) => void;
-}) {
-    const toggleSort = () => {
-        const direction = filter.direction === 'asc' ? 'desc' : 'asc';
-        setFilter({ ...filter, sort: 'name', direction });
-        navigate({ sort: 'name', direction });
-    };
-
+function AdminProductsIndex() {
     return (
         <AppLayout title="Kelola Produk">
-            <div className="mb-6 grid gap-4 md:grid-cols-3">
-                <StatCard
-                    title="Total Produk"
-                    value={summary.total.toLocaleString('id-ID')}
-                    subtitle="Produk Aktif"
-                    icon={Package}
-                    tone="indigo"
-                />
-                <StatCard
-                    title="Stok Tersedia"
-                    value={summary.available.toLocaleString('id-ID')}
-                    subtitle="Produk"
-                    icon={PackagePlus}
-                    tone="emerald"
-                />
-                <StatCard
-                    title="Stok Habis"
-                    value={summary.empty.toLocaleString('id-ID')}
-                    subtitle="Produk"
-                    icon={PackageMinus}
-                    tone="rose"
-                />
-            </div>
-
             <div className="glass-card min-w-0 overflow-hidden">
-                <div className="border-b border-slate-100 p-4 dark:border-slate-800 sm:p-6">
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <h2 className="text-lg font-black">Daftar Produk</h2>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Link href={route('stocks.index')} className="btn-muted shrink-0">
-                                <History className="h-4 w-4" />
-                                <span className="hidden sm:inline">Stok Barang</span>
-                            </Link>
-                            <Link href={route('sales.pos')} className="btn-primary shrink-0">
-                                <ShoppingCart className="h-4 w-4" />
-                                <span className="hidden sm:inline">Buka Kasir POS</span>
-                            </Link>
-                        </div>
-                    </div>
-
+                <div className="p-4 dark:border-slate-800 sm:p-6">
+                    <h2 className="mb-4 text-lg font-black">Tambah Produk Baru</h2>
                     <AddProductForm />
-
-                    <h3 className="mb-4 mt-6 text-base font-black text-slate-600 dark:text-slate-400">Filter Produk</h3>
-                    <form onSubmit={submit} className="filter-bar filter-bar--products">
-                        <input
-                            className="input filter-bar__control font-mono"
-                            placeholder="Barcode"
-                            aria-label="Barcode"
-                            value={filter.barcode ?? ''}
-                            onChange={(e) => setFilter({ ...filter, barcode: e.target.value })}
-                        />
-                        <input
-                            className="input filter-bar__control"
-                            placeholder="Nama Barang"
-                            aria-label="Nama Barang"
-                            value={filter.name ?? ''}
-                            onChange={(e) => setFilter({ ...filter, name: e.target.value })}
-                        />
-                        <select
-                            className="input filter-bar__control"
-                            aria-label="Status Stok"
-                            value={filter.stock_status ?? ''}
-                            onChange={(e) => setFilter({ ...filter, stock_status: e.target.value })}
-                        >
-                            {stockStatusTabs.map((tab) => (
-                                <option key={tab.value || 'all'} value={tab.value}>
-                                    {tab.label}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="filter-bar__search">
-                            <Search className="filter-bar__search-icon h-4 w-4" />
-                            <input
-                                className="input filter-bar__control !pl-9"
-                                placeholder="Pencarian..."
-                                aria-label="Pencarian"
-                                value={filter.search ?? ''}
-                                onChange={(e) => setFilter({ ...filter, search: e.target.value })}
-                            />
-                        </div>
-                        <button type="submit" className="btn-primary filter-bar__submit">
-                            Cari
-                        </button>
-                    </form>
                 </div>
-
-                <div className="data-table-wrap">
-                    <table className="data-table data-table--products w-full text-sm">
-                        <colgroup>
-                            <col />
-                            <col />
-                            <col />
-                            <col />
-                            <col />
-                        </colgroup>
-                        <thead>
-                            <tr>
-                                <th className="col-tight">Barcode</th>
-                                <th>
-                                    <button
-                                        type="button"
-                                        onClick={toggleSort}
-                                        className="font-semibold hover:text-indigo-600"
-                                    >
-                                        Nama Barang
-                                    </button>
-                                </th>
-                                <th className="col-money">Harga</th>
-                                <th className="col-qty">Stok</th>
-                                <th className="col-tight col-actions">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {products.data.length === 0 ? (
-                                <tr>
-                                    <td colSpan={5} className="py-12 text-center text-slate-400">
-                                        Belum ada produk terdaftar.
-                                    </td>
-                                </tr>
-                            ) : (
-                                products.data.map((product: ProductRow) => (
-                                    <tr key={product.id}>
-                                        <td className="col-tight font-mono text-xs">{product.barcode}</td>
-                                        <td className="truncate font-medium">
-                                            <div>{product.name}</div>
-                                            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                                {product.unit}
-                                            </span>
-                                        </td>
-                                        <td className="col-money tabular-nums">{rupiah(product.sell_price)}</td>
-                                        <td className={`col-qty ${product.stock <= 0 ? 'text-rose-600' : ''}`}>
-                                            {formatQuantity(product.stock, product.unit)}
-                                        </td>
-                                        <td className="col-tight col-actions">
-                                            <div className="table-actions">
-                                                <Link
-                                                    href={route('stocks.index', { product_id: product.id })}
-                                                    className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs"
-                                                >
-                                                    <History className="h-3.5 w-3.5 shrink-0" />
-                                                    <span className="btn-label">Riwayat</span>
-                                                </Link>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => onDelete(product)}
-                                                    className="table-action-btn btn-muted !h-8 !px-2.5 !py-1 text-xs text-rose-600"
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                                                    <span className="btn-label">Hapus</span>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                <AdminPaginationFooter
-                    products={products}
-                    filter={filter}
-                    onPerPage={(n) => {
-                        setFilter({ ...filter, per_page: String(n) });
-                        navigate({ per_page: n });
-                    }}
-                />
             </div>
         </AppLayout>
     );
@@ -588,20 +500,13 @@ function AdminProductsIndex({
 export default function ProductsIndex({
     products,
     filters,
-    summary,
     isAdmin,
 }: {
     products: any;
     filters: Record<string, string | undefined>;
-    summary?: SummaryData;
     isAdmin: boolean;
 }) {
     const [filter, setFilter] = useState(filters ?? {});
-
-    const { requestDelete, deleteModal } = useConfirmDelete({
-        buildRoute: (id) => route('products.destroy', id),
-        message: (target) => `Hapus produk "${target.label}"? Tindakan ini tidak dapat dibatalkan.`,
-    });
 
     const navigate = (extra: Record<string, string | number | undefined> = {}) => {
         const params: Record<string, string> = {};
@@ -626,14 +531,8 @@ export default function ProductsIndex({
             {!isAdmin ? (
                 <KasirProductsIndex {...shared} />
             ) : (
-                <AdminProductsIndex
-                    {...shared}
-                    summary={summary ?? { total: 0, available: 0, empty: 0 }}
-                    onDelete={(product) => requestDelete({ id: product.id, label: product.name })}
-                />
+                <AdminProductsIndex />
             )}
-
-            {deleteModal}
         </>
     );
 }

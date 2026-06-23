@@ -1,6 +1,9 @@
 networks:
   default:
     name: web-richymaju_default
+  mysql_network:
+    external: true
+    name: container-laravel_default
 
 services:
   caddy:
@@ -11,6 +14,7 @@ services:
       - laravel
       - reverb
       - waha
+      - phpmyadmin_richymaju
     ports:
       - "80:80"
       - "443:443"
@@ -117,6 +121,21 @@ services:
       timeout: 5s
       retries: 20
       start_period: 30s
+
+  phpmyadmin_richymaju:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin_richymaju
+    restart: unless-stopped
+    networks:
+      - default
+      - mysql_network
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: "3306"
+      PMA_ABSOLUTE_URI: "https://db.richymaju.my.id/"
+      UPLOAD_LIMIT: 64M
+    expose:
+      - "80"
 
   waha:
     image: devlikeapro/waha:latest

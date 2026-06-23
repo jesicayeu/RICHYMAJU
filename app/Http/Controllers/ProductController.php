@@ -3,14 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\StockMovement;
 use App\Services\EncryptedFieldSearch;
 use App\Services\GoogleSheetsSyncService;
 use App\Services\ProductStockService;
+use App\Services\WhatsappNotificationService;
+use App\Support\Audit;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -54,22 +59,22 @@ class ProductController extends Controller
 
         $isAdmin = $request->user()->isAdmin();
 
-        $payload = [
+        return Inertia::render('Products/Index', [
             'products' => $products,
             'filters' => $filters,
             'isAdmin' => $isAdmin,
-        ];
-
-        if ($isAdmin) {
-            $payload['summary'] = $this->buildSummary($baseQuery);
-        }
-
-        return Inertia::render('Products/Index', $payload);
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
         abort_unless($request->user()->isAdmin(), 403);
+
+        if ($request->has('initial_quantity')) {
+            $request->merge([
+                'initial_quantity' => $this->normalizeQuantity($request->input('initial_quantity')),
+            ]);
+        }
 
         $data = $request->validate([
             'barcode' => ['required', 'string', 'max:64'],
@@ -77,9 +82,12 @@ class ProductController extends Controller
             'unit' => ['required', 'string', 'max:30'],
             'sell_price' => ['required', 'integer', 'min:1'],
             'buy_price' => ['required', 'integer', 'min:0'],
+            'initial_quantity' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $data['barcode'] = trim($data['barcode']);
+        $initialQuantity = round((float) ($data['initial_quantity'] ?? 0), 2);
+        unset($data['initial_quantity']);
 
         if ($this->barcodeExists($data['barcode'])) {
             throw ValidationException::withMessages([
@@ -87,7 +95,36 @@ class ProductController extends Controller
             ]);
         }
 
-        Product::create($data);
+        DB::transaction(function () use ($request, $data, $initialQuantity) {
+            $product = Product::create($data);
+
+            if ($initialQuantity <= 0) {
+                return;
+            }
+
+            $movement = StockMovement::create([
+                'code' => 'STK-'.now()->format('Ymd').'-'.Str::upper(Str::random(6)),
+                'user_id' => $request->user()->id,
+                'product_id' => $product->id,
+                'item_name' => $product->name,
+                'type' => 'masuk',
+                'quantity' => $initialQuantity,
+                'unit' => $product->unit,
+                'status' => 'selesai',
+                'notes' => 'Stok awal saat produk didaftarkan.',
+                'occurred_at' => now(),
+            ]);
+
+            Audit::record($movement, 'tambah', [], $movement->toArray(), 'Stok awal produk baru.');
+
+            app(WhatsappNotificationService::class)->dispatch(
+                'stok_tambah',
+                $request->user(),
+                $movement,
+            );
+
+            app(GoogleSheetsSyncService::class)->upsert($movement);
+        });
 
         app(GoogleSheetsSyncService::class)->syncModule('products');
 
@@ -142,6 +179,21 @@ class ProductController extends Controller
         }
 
         return response()->json($this->serializeProduct($product));
+    }
+
+    public function checkBarcode(string $barcode): JsonResponse
+    {
+        $product = $this->findByBarcode($barcode);
+
+        if (! $product) {
+            return response()->json(['registered' => false]);
+        }
+
+        return response()->json([
+            'registered' => true,
+            'is_active' => (bool) $product->is_active,
+            'product' => $this->serializeProduct($product),
+        ]);
     }
 
     private function findByBarcode(string $barcode): ?Product
@@ -246,17 +298,25 @@ class ProductController extends Controller
         ))->withQueryString();
     }
 
-    /**
-     * @return array{total: int, available: int, empty: int}
-     */
-    private function buildSummary(Builder $query): array
+    private function normalizeQuantity(mixed $value): float|string
     {
-        $products = $query->get()->map(fn (Product $product) => $this->serializeProduct($product));
+        $raw = trim((string) $value);
 
-        return [
-            'total' => $products->count(),
-            'available' => $products->filter(fn (array $product) => $product['stock'] > 0)->count(),
-            'empty' => $products->filter(fn (array $product) => $product['stock'] <= 0)->count(),
-        ];
+        if ($raw === '') {
+            return 0;
+        }
+
+        if (str_contains($raw, ',')) {
+            $raw = str_replace('.', '', $raw);
+            $raw = str_replace(',', '.', $raw);
+        } else {
+            $parts = explode('.', $raw);
+            if (count($parts) > 2) {
+                $decimal = array_pop($parts);
+                $raw = implode('', $parts).'.'.$decimal;
+            }
+        }
+
+        return round((float) $raw, 2);
     }
 }

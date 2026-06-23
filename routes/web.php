@@ -35,6 +35,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/media', [MediaController::class, 'show'])->name('media.show');
 
     Route::get('/sales/pos', [SaleController::class, 'pos'])->name('sales.pos');
+    Route::put('/sales/pos/cart', [SaleController::class, 'savePosCart'])->name('sales.pos.cart.save');
+    Route::delete('/sales/pos/cart', [SaleController::class, 'clearPosCart'])->name('sales.pos.cart.clear');
     Route::get('/sales/scanner-test', [SaleController::class, 'scannerTest'])->middleware('role:admin')->name('sales.scanner-test');
     Route::get('/sales/scanner-setup', [SaleController::class, 'scannerSetup'])->middleware('role:admin')->name('sales.scanner-setup');
     Route::resource('sales', SaleController::class)->except(['destroy']);
@@ -42,6 +44,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/sales/{sale}', [SaleController::class, 'destroy'])->middleware('role:admin')->name('sales.destroy');
 
     Route::get('/products/lookup/{barcode}', [ProductController::class, 'lookup'])->name('products.lookup');
+    Route::get('/products/check/{barcode}', [ProductController::class, 'checkBarcode'])->name('products.check');
     Route::resource('products', ProductController::class)->except(['show', 'create', 'edit']);
 
     Route::resource('transactions', TransactionController::class)->except(['destroy']);

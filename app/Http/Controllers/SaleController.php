@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\PosCartUpdated;
 use App\Models\PaymentSetting;
+use App\Models\PosCart;
 use App\Models\Product;
 use App\Models\Sale;
+use App\Models\User;
 use App\Models\StockMovement;
 use App\Services\EncryptedFieldSearch;
 use App\Services\EncryptedQuery;
@@ -99,7 +102,69 @@ class SaleController extends Controller
             'isAdmin' => $request->user()->isAdmin(),
             'paymentConfigured' => PaymentSetting::current()->isConfigured(),
             'paymentInfo' => PaymentSetting::current()->publicPayload(),
+            'posCart' => $this->posCartPayload($request->user()),
         ]);
+    }
+
+    public function savePosCart(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'payment_method' => ['required', 'in:tunai,barcode'],
+            'cash_paid' => ['nullable', 'string', 'max:32'],
+            'client_id' => ['nullable', 'string', 'max:64'],
+            'items' => ['nullable', 'array'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
+        ]);
+
+        $items = collect($data['items'] ?? [])
+            ->map(fn (array $item) => [
+                'product_id' => (int) $item['product_id'],
+                'quantity' => round((float) $item['quantity'], 2),
+            ])
+            ->filter(fn (array $item) => $item['quantity'] > 0)
+            ->values()
+            ->all();
+
+        $paymentMethod = $data['payment_method'];
+        $cashPaid = (string) ($data['cash_paid'] ?? '');
+        $clientId = $data['client_id'] ?? null;
+
+        if ($items === [] && $paymentMethod === 'tunai' && $cashPaid === '') {
+            PosCart::query()->where('user_id', $request->user()->id)->delete();
+            $payload = $this->emptyPosCartPayload();
+            $this->broadcastPosCart($request->user()->id, $payload, $clientId);
+
+            return response()->json($payload);
+        }
+
+        $cart = PosCart::query()->updateOrCreate(
+            ['user_id' => $request->user()->id],
+            [
+                'payment_method' => $paymentMethod,
+                'cash_paid' => $cashPaid,
+                'items' => $items,
+            ],
+        );
+
+        $cart->refresh();
+        $payload = $this->hydratePosCart($cart);
+        $this->broadcastPosCart($request->user()->id, $payload, $clientId);
+
+        return response()->json($payload);
+    }
+
+    public function clearPosCart(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'client_id' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        PosCart::query()->where('user_id', $request->user()->id)->delete();
+        $payload = $this->emptyPosCartPayload();
+        $this->broadcastPosCart($request->user()->id, $payload, $data['client_id'] ?? null);
+
+        return response()->json(['ok' => true, ...$payload]);
     }
 
     public function scannerTest(): Response
@@ -172,6 +237,9 @@ class SaleController extends Controller
         if (collect($sale->items)->contains(fn ($item) => filled($item->product_id))) {
             app(GoogleSheetsSyncService::class)->syncModule('products');
         }
+
+        PosCart::query()->where('user_id', $request->user()->id)->delete();
+        $this->broadcastPosCart($request->user()->id, $this->emptyPosCartPayload());
 
         if ($request->wantsJson()) {
             $paymentQr = $this->paymentQrResult($sale);
@@ -436,6 +504,81 @@ class SaleController extends Controller
             'count' => $sales->count(),
             'paid' => $sales->where('payment_status', 'lunas')->sum('total_amount'),
             'unpaid' => $sales->where('payment_status', 'belum_lunas')->sum('total_amount'),
+        ];
+    }
+
+    private function posCartPayload(User $user): array
+    {
+        $cart = PosCart::query()->where('user_id', $user->id)->first();
+
+        if (! $cart) {
+            return $this->emptyPosCartPayload();
+        }
+
+        return $this->hydratePosCart($cart);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emptyPosCartPayload(): array
+    {
+        return [
+            'cart' => [],
+            'paymentMethod' => 'tunai',
+            'cashPaid' => '',
+            'updatedAt' => now()->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function broadcastPosCart(int $userId, array $payload, ?string $clientId = null): void
+    {
+        PosCartUpdated::dispatch($userId, $payload, $clientId);
+    }
+
+    private function hydratePosCart(PosCart $cart): array
+    {
+        $items = [];
+
+        foreach ($cart->items ?? [] as $row) {
+            $productId = (int) ($row['product_id'] ?? 0);
+            $quantity = (float) ($row['quantity'] ?? 0);
+
+            if ($productId <= 0 || $quantity <= 0) {
+                continue;
+            }
+
+            $product = Product::query()->where('is_active', true)->find($productId);
+
+            if (! $product) {
+                continue;
+            }
+
+            $stock = $this->stockService->availableStock($product);
+
+            if ($stock <= 0) {
+                continue;
+            }
+
+            $items[] = [
+                'product_id' => $product->id,
+                'barcode' => $product->barcode,
+                'item_name' => $product->name,
+                'unit' => $product->unit,
+                'price' => (int) $product->sell_price,
+                'quantity' => min($quantity, $stock),
+                'stock' => $stock,
+            ];
+        }
+
+        return [
+            'cart' => $items,
+            'paymentMethod' => $cart->payment_method === 'barcode' ? 'barcode' : 'tunai',
+            'cashPaid' => $cart->cash_paid ?? '',
+            'updatedAt' => $cart->updated_at?->toIso8601String() ?? now()->toIso8601String(),
         ];
     }
 
